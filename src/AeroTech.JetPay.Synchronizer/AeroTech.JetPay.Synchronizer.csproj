@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AeroTech.JetPay.Persistence\AeroTech.JetPay.Persistence.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Providers\AeroTech.JetPay.Providers.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Query\AeroTech.JetPay.Query.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

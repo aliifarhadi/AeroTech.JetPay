@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AeroTech.JetPay.Consumers\AeroTech.JetPay.Consumers.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Jobs\AeroTech.JetPay.Jobs.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Mock\AeroTech.JetPay.Mock.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Persistence\AeroTech.JetPay.Persistence.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Providers\AeroTech.JetPay.Providers.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Query\AeroTech.JetPay.Query.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.ReferenceData\AeroTech.JetPay.ReferenceData.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.RestApi\AeroTech.JetPay.RestApi.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

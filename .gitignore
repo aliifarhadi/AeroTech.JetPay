@@ -1,0 +1,10 @@
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.rsuser
+TestResults/
+*.log
+.idea/
+.DS_Store

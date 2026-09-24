@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Framework\AeroTech.Framework.Infrastructure\AeroTech.Framework.Infrastructure.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Application\AeroTech.JetPay.Application.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Providers\AeroTech.JetPay.Providers.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.ReferenceData\AeroTech.JetPay.ReferenceData.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

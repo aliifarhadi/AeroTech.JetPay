@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Contracts\AeroTech.Messages\AeroTech.Messages.csproj" />
+    <ProjectReference Include="..\..\Framework\AeroTech.Framework.Presentation\AeroTech.Framework.Presentation.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Application\AeroTech.JetPay.Application.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Persistence\AeroTech.JetPay.Persistence.csproj" />
+    <ProjectReference Include="..\AeroTech.JetPay.Synchronizer\AeroTech.JetPay.Synchronizer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.5.2" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
