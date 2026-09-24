@@ -42,7 +42,7 @@ public sealed class EventTests : IDisposable
         await _harness.CreateAndConfirmAsync(TenderType.StoredValue, orderId: 6001);
         await _harness.CreateAndConfirmAsync(TenderType.AgencyCredit, orderId: 6002);
 
-        var eventIds = _harness.Outbox.Written.OfType<PaymentIntentChangedV1>().Select(change => change.EventId).ToList();
+        var eventIds = _harness.Outbox.Written.OfType<PaymentIntentChanged>().Select(change => change.EventId).ToList();
 
         Assert.Equal(eventIds.Count, eventIds.Distinct().Count());
     }
@@ -64,10 +64,10 @@ public sealed class EventTests : IDisposable
     public async Task A_republished_event_keeps_its_transport_identity_so_consumers_can_deduplicate()
     {
         await _harness.CreateAndConfirmAsync(TenderType.StoredValue);
-        var changes = _harness.Outbox.Written.OfType<PaymentIntentChangedV1>().ToList();
+        var changes = _harness.Outbox.Written.OfType<PaymentIntentChanged>().ToList();
         var first = changes[0];
 
-        var republished = JsonSerializer.Deserialize<PaymentIntentChangedV1>(JsonSerializer.Serialize(first))!;
+        var republished = JsonSerializer.Deserialize<PaymentIntentChanged>(JsonSerializer.Serialize(first))!;
 
         Assert.NotNull(OutboxMessageIdentity.Of(first));
         Assert.Equal(OutboxMessageIdentity.Of(first), OutboxMessageIdentity.Of(republished));
@@ -82,10 +82,10 @@ public sealed class EventTests : IDisposable
         var captured = await _harness.CompleteCustomerActionAsync(intent.Id);
         var changes = _harness.ChangesOf(intent.Id);
 
-        IEnumerable<PaymentIntentChangedV1> delivered = [changes[3], changes[1], changes[3], changes[0], changes[2], changes[1]];
+        IEnumerable<PaymentIntentChanged> delivered = [changes[3], changes[1], changes[3], changes[0], changes[2], changes[1]];
 
         var seen = new HashSet<string>();
-        PaymentIntentChangedV1? applied = null;
+        PaymentIntentChanged? applied = null;
 
         foreach (var change in delivered)
         {

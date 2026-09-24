@@ -71,12 +71,12 @@ public sealed class ContractConformanceTests
         ]);
 
     [Fact]
-    public void PaymentIntentChangedV1_carries_exactly_the_final_contract_fields()
+    public void PaymentIntentChanged_carries_exactly_the_final_contract_fields()
     {
         Assert.Equal(typeof(string), typeof(BaseIntegrationEvent).GetProperty(nameof(BaseIntegrationEvent.EventId))!.PropertyType);
-        Assert.True(typeof(PaymentIntentChangedV1).IsSubclassOf(typeof(BaseIntegrationEvent)));
+        Assert.True(typeof(PaymentIntentChanged).IsSubclassOf(typeof(BaseIntegrationEvent)));
 
-        AssertShape(typeof(PaymentIntentChangedV1), BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly,
+        AssertShape(typeof(PaymentIntentChanged), BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly,
         [
             ("PaymentIntentId", typeof(string)),
             ("PayableInstructionId", typeof(string)),
@@ -100,11 +100,11 @@ public sealed class ContractConformanceTests
     }
 
     [Fact]
-    public void PaymentPaidUnappliedV1_carries_exactly_the_final_contract_fields()
+    public void PaymentPaidUnapplied_carries_exactly_the_final_contract_fields()
     {
-        Assert.True(typeof(PaymentPaidUnappliedV1).IsSubclassOf(typeof(BaseIntegrationEvent)));
+        Assert.True(typeof(PaymentPaidUnapplied).IsSubclassOf(typeof(BaseIntegrationEvent)));
 
-        AssertShape(typeof(PaymentPaidUnappliedV1), BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly,
+        AssertShape(typeof(PaymentPaidUnapplied), BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly,
         [
             ("PaymentIntentId", typeof(string)),
             ("OrderId", typeof(long)),

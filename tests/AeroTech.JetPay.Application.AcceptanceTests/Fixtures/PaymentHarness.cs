@@ -177,11 +177,11 @@ public sealed class PaymentHarness : IDisposable
     public Task<IReadOnlyList<PaymentMethodOptionView>> ResolveAsync(PayerType payerType, long orderId = 5001)
         => SendAsync(new ResolvePaymentMethodOptionsQuery(orderId, $"ORD-{orderId}", 1, payerType, PayerId, Amount, CurrencyId, "Web"));
 
-    public IReadOnlyList<PaymentIntentChangedV1> ChangesOf(string paymentIntentId)
-        => Outbox.Written.OfType<PaymentIntentChangedV1>().Where(change => change.PaymentIntentId == paymentIntentId).ToList();
+    public IReadOnlyList<PaymentIntentChanged> ChangesOf(string paymentIntentId)
+        => Outbox.Written.OfType<PaymentIntentChanged>().Where(change => change.PaymentIntentId == paymentIntentId).ToList();
 
-    public IReadOnlyList<PaymentPaidUnappliedV1> PaidUnapplied()
-        => Outbox.Written.OfType<PaymentPaidUnappliedV1>().ToList();
+    public IReadOnlyList<PaymentPaidUnapplied> PaidUnapplied()
+        => Outbox.Written.OfType<PaymentPaidUnapplied>().ToList();
 
     public static async Task<BusinessException> AssertRejectedAsync(int code, Func<Task> action)
     {

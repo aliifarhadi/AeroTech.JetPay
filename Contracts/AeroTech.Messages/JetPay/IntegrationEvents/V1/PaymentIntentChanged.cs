@@ -2,7 +2,7 @@ using AeroTech.Messages.JetPay.Enums;
 
 namespace AeroTech.Messages.JetPay.IntegrationEvents.V1
 {
-    public sealed record PaymentIntentChangedV1(
+    public sealed record PaymentIntentChanged(
         string PaymentIntentId,
         string PayableInstructionId,
         long OrderId,
