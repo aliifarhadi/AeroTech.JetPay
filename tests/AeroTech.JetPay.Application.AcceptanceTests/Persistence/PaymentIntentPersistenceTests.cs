@@ -130,7 +130,7 @@ public sealed class PaymentIntentPersistenceTests : IAsyncLifetime
                 5001,
                 "ORD-5001",
                 1,
-                PaymentPurpose.Sale,
+                PaymentPurpose.InitialSale,
                 PayerType.Customer,
                 7001,
                 amount,

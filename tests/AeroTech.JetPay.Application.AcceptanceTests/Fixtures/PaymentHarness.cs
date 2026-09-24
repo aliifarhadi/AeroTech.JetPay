@@ -109,7 +109,7 @@ public sealed class PaymentHarness : IDisposable
             orderId,
             $"ORD-{orderId}",
             commercialVersion,
-            PaymentPurpose.Sale,
+            PaymentPurpose.InitialSale,
             payerType,
             PayerId,
             amount,

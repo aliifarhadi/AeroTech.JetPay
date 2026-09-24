@@ -9,7 +9,8 @@ using Xunit;
 namespace AeroTech.JetPay.Application.AcceptanceTests.Contract;
 
 /// <summary>
-/// Pins the wire shapes to AeroTech-JetPay-Payment-Orchestrator-Benchmark-and-Contract-v1.0-FINAL §6, §17, §18 and §20.
+/// Pins the wire shapes to AeroTech-JetPay-Payment-Orchestrator-Benchmark-and-Contract-v1.0-FINAL §6, §17, §18 and §20
+/// and to AeroTech-Ordering-Stage3-Payment-Issue-Contract-v1.0-FINAL §5-§6.
 /// </summary>
 public sealed class ContractConformanceTests
 {
@@ -127,6 +128,11 @@ public sealed class ContractConformanceTests
             Enum.GetNames<PaymentIntentStatus>());
         Assert.Equal(["None", "Redirect", "HtmlForm", "Sdk", "ThreeDsChallenge"], Enum.GetNames<CustomerActionType>());
         Assert.Equal(["Automatic", "Manual"], Enum.GetNames<PaymentCaptureMode>());
+
+        // Ordering Stage-3 Payment Issue Contract §5 (PaymentCoveragePurpose).
+        Assert.Equal(
+            ["InitialSale", "AddService", "ExchangeAdditionalCollection", "GroupDeposit", "FinalPayment", "Other"],
+            Enum.GetNames<PaymentPurpose>());
     }
 
     private static void AssertShape(Type type, BindingFlags flags, IReadOnlyList<(string Name, Type Type)> expected)
