@@ -2,10 +2,6 @@ using AeroTech.Messages;
 
 namespace AeroTech.JetPay.Consumers.Outbox
 {
-    /// <summary>
-    /// Derives the transport MessageId from the message's own identity, so republishing an outbox row after a crash
-    /// carries the same MessageId and consumers' inbox deduplication discards the copy.
-    /// </summary>
     public static class OutboxMessageIdentity
     {
         public static Guid? Of(object payload) => payload switch

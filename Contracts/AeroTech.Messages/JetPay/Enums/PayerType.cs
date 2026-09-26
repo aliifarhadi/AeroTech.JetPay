@@ -3,7 +3,8 @@ namespace AeroTech.Messages.JetPay.Enums
     public enum PayerType
     {
         Customer = 1,
-        Organization = 2,
-        Agency = 3
+        Agency = 2,
+        Corporate = 3,
+        Partner = 4
     }
 }

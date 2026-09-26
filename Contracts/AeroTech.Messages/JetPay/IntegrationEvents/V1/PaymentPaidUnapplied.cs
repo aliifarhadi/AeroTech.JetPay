@@ -1,6 +1,7 @@
 namespace AeroTech.Messages.JetPay.IntegrationEvents.V1
 {
     public sealed record PaymentPaidUnapplied(
+        string PaymentSessionId,
         string PaymentIntentId,
         long OrderId,
         string SupersededPayableInstructionId,

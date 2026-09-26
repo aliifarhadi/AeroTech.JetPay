@@ -2,9 +2,8 @@ namespace AeroTech.JetPay.Domain.IdempotencyRecordAggregate
 {
     public enum IdempotentOperation
     {
-        CreatePaymentIntent = 1,
-        ConfirmPaymentIntent = 2,
-        CapturePaymentIntent = 3,
-        CancelPaymentIntent = 4
+        CreatePaymentSession = 1,
+        ConfirmPaymentSession = 2,
+        CancelPaymentSession = 3
     }
 }

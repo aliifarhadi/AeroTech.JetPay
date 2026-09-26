@@ -7,11 +7,7 @@ namespace AeroTech.JetPay.Application._Shared.Idempotency
 {
     public interface IIdempotencyGuard
     {
-        /// <summary>
-        /// Returns the payment intent id of an earlier committed request with the same key and payload, or null when
-        /// the key is new. The same key with a different payload is rejected.
-        /// </summary>
-        Task<string?> FindReplayAsync(
+        Task<IdempotencyRecord?> FindReplayAsync(
             IdempotentOperation operation,
             string scope,
             string idempotencyKey,
@@ -23,7 +19,8 @@ namespace AeroTech.JetPay.Application._Shared.Idempotency
             string scope,
             string idempotencyKey,
             string requestFingerprint,
-            string paymentIntentId,
+            string paymentSessionId,
+            IEnumerable<string> paymentIntentIds,
             CancellationToken cancellationToken = default);
     }
 
@@ -40,7 +37,7 @@ namespace AeroTech.JetPay.Application._Shared.Idempotency
             _clock = clock;
         }
 
-        public async Task<string?> FindReplayAsync(
+        public async Task<IdempotencyRecord?> FindReplayAsync(
             IdempotentOperation operation,
             string scope,
             string idempotencyKey,
@@ -49,13 +46,10 @@ namespace AeroTech.JetPay.Application._Shared.Idempotency
         {
             var record = await _records.FindAsync(operation, scope, idempotencyKey, cancellationToken);
 
-            if (record is null)
-                return null;
-
-            if (!record.Matches(requestFingerprint))
+            if (record is not null && !record.Matches(requestFingerprint))
                 throw ExceptionFactory.IdempotencyKeyReusedWithDifferentPayload(idempotencyKey, operation);
 
-            return record.PaymentIntentId;
+            return record;
         }
 
         public Task RecordAsync(
@@ -63,7 +57,8 @@ namespace AeroTech.JetPay.Application._Shared.Idempotency
             string scope,
             string idempotencyKey,
             string requestFingerprint,
-            string paymentIntentId,
+            string paymentSessionId,
+            IEnumerable<string> paymentIntentIds,
             CancellationToken cancellationToken = default)
             => _records.AddAsync(
                 IdempotencyRecord.Create(
@@ -72,7 +67,8 @@ namespace AeroTech.JetPay.Application._Shared.Idempotency
                     scope,
                     idempotencyKey,
                     requestFingerprint,
-                    paymentIntentId,
+                    paymentSessionId,
+                    paymentIntentIds,
                     _clock.GetDateTime()),
                 cancellationToken);
     }

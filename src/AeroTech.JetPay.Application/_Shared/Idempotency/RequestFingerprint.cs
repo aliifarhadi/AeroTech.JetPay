@@ -4,10 +4,6 @@ using System.Text;
 
 namespace AeroTech.JetPay.Application._Shared.Idempotency
 {
-    /// <summary>
-    /// Canonical hash of an idempotent request's business payload. Decimals are normalized so 100 and 100.00 are the
-    /// same amount, and instants are compared in UTC.
-    /// </summary>
     public static class RequestFingerprint
     {
         private const char Separator = '\u001f';

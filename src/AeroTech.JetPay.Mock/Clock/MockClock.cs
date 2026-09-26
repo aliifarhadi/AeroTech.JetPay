@@ -2,9 +2,6 @@ using AeroTech.Framework.Core.ServiceContracts;
 
 namespace AeroTech.JetPay.Mock.Clock
 {
-    /// <summary>
-    /// Mock-only clock that can be moved forward so expiry paths are reachable deterministically without waiting.
-    /// </summary>
     public sealed class MockClock : IClock
     {
         private long _offsetTicks;

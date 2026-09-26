@@ -45,7 +45,11 @@ namespace AeroTech.JetPay.Persistence.Migrations
                     b.Property<int>("Operation")
                         .HasColumnType("int");
 
-                    b.Property<string>("PaymentIntentId")
+                    b.PrimitiveCollection<string>("PaymentIntentIds")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PaymentSessionId")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
@@ -68,7 +72,7 @@ namespace AeroTech.JetPay.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PaymentIntentId");
+                    b.HasIndex("PaymentSessionId");
 
                     b.HasIndex("Operation", "Scope", "IdempotencyKey")
                         .IsUnique();
@@ -93,9 +97,6 @@ namespace AeroTech.JetPay.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("decimal(19,4)");
 
-                    b.Property<int>("CommercialVersion")
-                        .HasColumnType("int");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -117,8 +118,103 @@ namespace AeroTech.JetPay.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("decimal(19,4)");
 
-                    b.Property<DateTimeOffset?>("IntentExpiresAt")
+                    b.Property<DateTimeOffset>("LastUpdateTime")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<long?>("LastUpdatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PaymentMethodOptionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("PaymentSessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ProviderReference")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<decimal>("RefundedAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<decimal>("RequestedAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenderType")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("PaymentSessionId", "Sequence")
+                        .IsUnique();
+
+                    b.ToTable("PaymentIntents", "Payment");
+                });
+
+            modelBuilder.Entity("AeroTech.JetPay.Domain.PaymentSessionAggregate.PaymentSession", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("AssuranceRequirement")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("CapturedAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<int>("CommercialVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("CurrencyId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("EarliestGuaranteeExpiry")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<decimal>("GuaranteedAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<int>("InteractionMode")
+                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("LastUpdateTime")
                         .HasColumnType("datetimeoffset");
@@ -145,6 +241,10 @@ namespace AeroTech.JetPay.Persistence.Migrations
                     b.Property<int>("PayerType")
                         .HasColumnType("int");
 
+                    b.PrimitiveCollection<string>("PaymentIntentIds")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Purpose")
                         .HasColumnType("int");
 
@@ -152,25 +252,15 @@ namespace AeroTech.JetPay.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("decimal(19,4)");
 
-                    b.Property<decimal>("RequestedAmount")
+                    b.Property<decimal>("RequiredAmount")
                         .HasPrecision(19, 4)
                         .HasColumnType("decimal(19,4)");
-
-                    b.Property<int>("RequiredGuarantee")
-                        .HasColumnType("int");
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
-
-                    b.Property<string>("SelectedPaymentMethodOptionId")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<int?>("SelectedTenderType")
-                        .HasColumnType("int");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -185,11 +275,11 @@ namespace AeroTech.JetPay.Persistence.Migrations
 
                     b.HasIndex("PayableInstructionId");
 
-                    b.HasIndex("Status");
-
                     b.HasIndex("OrderId", "CommercialVersion");
 
-                    b.ToTable("PaymentIntents", "Payment");
+                    b.HasIndex("Status", "ExpiresAt");
+
+                    b.ToTable("PaymentSessions", "Payment");
                 });
 
             modelBuilder.Entity("AeroTech.JetPay.Persistence.Inbox.InboxMessage", b =>
@@ -286,6 +376,44 @@ namespace AeroTech.JetPay.Persistence.Migrations
                         });
 
                     b.Navigation("NextAction");
+                });
+
+            modelBuilder.Entity("AeroTech.JetPay.Domain.PaymentSessionAggregate.PaymentSession", b =>
+                {
+                    b.OwnsOne("AeroTech.JetPay.Domain.PaymentSessionAggregate.ValueObjects.PaymentInitiatorContext", "InitiatorContext", b1 =>
+                        {
+                            b1.Property<string>("Id")
+                                .HasMaxLength(64)
+                                .HasColumnType("nvarchar(64)");
+
+                            b1.Property<long>("ActorId")
+                                .HasColumnType("bigint")
+                                .HasColumnName("InitiatorActorId");
+
+                            b1.Property<string>("ActorType")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("nvarchar(64)")
+                                .HasColumnName("InitiatorActorType");
+
+                            b1.Property<long?>("OfficeId")
+                                .HasColumnType("bigint")
+                                .HasColumnName("InitiatorOfficeId");
+
+                            b1.Property<int>("SalesChannel")
+                                .HasColumnType("int")
+                                .HasColumnName("InitiatorSalesChannel");
+
+                            b1.HasKey("Id");
+
+                            b1.ToTable("PaymentSessions", "Payment");
+
+                            b1.WithOwner()
+                                .HasForeignKey("Id");
+                        });
+
+                    b.Navigation("InitiatorContext")
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

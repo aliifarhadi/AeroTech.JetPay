@@ -4,10 +4,6 @@ using AeroTech.Framework.Core.ServiceContracts;
 
 namespace AeroTech.JetPay.Application.AcceptanceTests.Fakes;
 
-/// <summary>
-/// Mirrors CommandDbContext: domain events of tracked aggregates are dispatched (and so written to the outbox) as part
-/// of the same save that commits the staged changes.
-/// </summary>
 public sealed class InMemoryUnitOfWork(IDomainEventDispatcher dispatcher) : IUnitOfWork
 {
     private readonly List<Action> _pending = [];

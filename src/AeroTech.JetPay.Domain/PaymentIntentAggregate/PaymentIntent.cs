@@ -1,8 +1,4 @@
-using System.Globalization;
 using AeroTech.Framework.Core.Domain.Aggregates;
-using AeroTech.Framework.Core.ServiceContracts;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate.Arguments;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate.DomainEvents;
 using AeroTech.JetPay.Domain.PaymentIntentAggregate.ValueObjects;
 using AeroTech.JetPay.Domain.Providers.Tenders;
 using AeroTech.JetPay.Domain._Shared.Resources;
@@ -16,45 +12,34 @@ namespace AeroTech.JetPay.Domain.PaymentIntentAggregate
         {
         }
 
-        private PaymentIntent(string id, CreatePaymentIntentArgs args, DateTimeOffset createdAt)
+        private PaymentIntent(string id, string paymentSessionId, int sequence, PaymentMethodOption option, decimal requestedAmount, DateTimeOffset createdAt)
         {
             Id = id;
-            PayableInstructionId = args.PayableInstructionId;
-            OrderId = args.OrderId;
-            OrderReference = args.OrderReference;
-            CommercialVersion = args.CommercialVersion;
-            Purpose = args.Purpose;
-            PayerType = args.PayerType;
-            PayerId = args.PayerId;
-            RequestedAmount = args.Amount;
-            CurrencyId = args.CurrencyId;
-            RequiredGuarantee = args.RequiredGuarantee;
-            CaptureMode = args.CaptureMode;
-            IntentExpiresAt = args.IntentExpiresAt;
+            PaymentSessionId = paymentSessionId;
+            Sequence = sequence;
+            PaymentMethodOptionId = option.Id;
+            TenderType = option.TenderType;
+            RequestedAmount = requestedAmount;
+            CurrencyId = option.CurrencyId;
+            CaptureMode = option.CaptureMode;
+            ProviderReference = option.FundingReference;
             Status = PaymentIntentStatus.Created;
+            Version = 1;
             CreatedAt = createdAt;
             UpdatedAt = createdAt;
         }
 
-        public string PayableInstructionId { get; private set; } = default!;
+        public string PaymentSessionId { get; private set; } = default!;
 
-        public long OrderId { get; private set; }
+        public int Sequence { get; private set; }
 
-        public string OrderReference { get; private set; } = default!;
+        public string PaymentMethodOptionId { get; private set; } = default!;
 
-        public int CommercialVersion { get; private set; }
-
-        public PaymentPurpose Purpose { get; private set; }
-
-        public PayerType PayerType { get; private set; }
-
-        public long PayerId { get; private set; }
+        public TenderType TenderType { get; private set; }
 
         public decimal RequestedAmount { get; private set; }
 
         public int CurrencyId { get; private set; }
-
-        public RequiredGuarantee RequiredGuarantee { get; private set; }
 
         public PaymentCaptureMode CaptureMode { get; private set; }
 
@@ -70,17 +55,13 @@ namespace AeroTech.JetPay.Domain.PaymentIntentAggregate
 
         public DateTimeOffset? GuaranteeExpiresAt { get; private set; }
 
-        public DateTimeOffset? IntentExpiresAt { get; private set; }
-
-        public TenderType? SelectedTenderType { get; private set; }
-
-        public string? SelectedPaymentMethodOptionId { get; private set; }
-
         public CustomerAction? NextAction { get; private set; }
 
         public string? FailureCode { get; private set; }
 
         public string? FailureReason { get; private set; }
+
+        public string? ProviderReference { get; private set; }
 
         public long Version { get; private set; }
 
@@ -88,212 +69,123 @@ namespace AeroTech.JetPay.Domain.PaymentIntentAggregate
 
         public DateTimeOffset UpdatedAt { get; private set; }
 
-        public bool IsActive => Status is not (PaymentIntentStatus.Failed or PaymentIntentStatus.Cancelled or PaymentIntentStatus.Expired);
+        public bool HoldsFunding => Status is not (PaymentIntentStatus.Failed or PaymentIntentStatus.Cancelled or PaymentIntentStatus.Expired);
 
-        public decimal CapturableAmount => AuthorizedAmount - CapturedAmount;
+        public bool IsDispatchPending => Status == PaymentIntentStatus.Created;
 
         public bool RequiresProviderRelease => Status is PaymentIntentStatus.RequiresCustomerAction or PaymentIntentStatus.Authorized;
 
-        public static PaymentIntent Create(string id, CreatePaymentIntentArgs args, IIdGenerator idGenerator, DateTimeOffset createdAt)
+        public static PaymentIntent Create(
+            string id,
+            string paymentSessionId,
+            int sequence,
+            PaymentMethodOption option,
+            decimal requestedAmount,
+            int sessionCurrencyId,
+            DateTimeOffset createdAt)
         {
-            if (args.Amount <= 0)
-                throw ExceptionFactory.PaymentAmountMustBePositive(args.Amount);
+            if (requestedAmount <= 0)
+                throw ExceptionFactory.PaymentAmountMustBePositive(requestedAmount);
 
-            if (args.IntentExpiresAt <= createdAt)
-                throw ExceptionFactory.IntentExpiryMustBeInTheFuture(args.IntentExpiresAt, createdAt);
+            if (option.CurrencyId != sessionCurrencyId)
+                throw ExceptionFactory.CurrencyMismatch(sessionCurrencyId, option.CurrencyId);
 
-            var intent = new PaymentIntent(id, args, createdAt);
-            intent.Changed(idGenerator, createdAt);
-
-            return intent;
+            return new PaymentIntent(id, paymentSessionId, sequence, option, requestedAmount, createdAt);
         }
 
-        public bool HasTermsOf(CreatePaymentIntentArgs args)
-            => PayableInstructionId == args.PayableInstructionId
-               && OrderId == args.OrderId
-               && OrderReference == args.OrderReference
-               && CommercialVersion == args.CommercialVersion
-               && Purpose == args.Purpose
-               && PayerType == args.PayerType
-               && PayerId == args.PayerId
-               && RequestedAmount == args.Amount
-               && CurrencyId == args.CurrencyId
-               && RequiredGuarantee == args.RequiredGuarantee
-               && CaptureMode == args.CaptureMode
-               && IntentExpiresAt == args.IntentExpiresAt;
+        public decimal ValidGuaranteeAt(DateTimeOffset now)
+            => Status is PaymentIntentStatus.Authorized or PaymentIntentStatus.PartiallyCaptured or PaymentIntentStatus.Captured
+               && !(GuaranteeExpiresAt <= now)
+                ? GuaranteedAmount
+                : 0;
 
-        public void EnsureConfirmable()
+        public decimal ValidFundsReceivedAt(DateTimeOffset now) => Math.Min(ValidGuaranteeAt(now), CapturedAmount - RefundedAmount);
+
+        public void ApplyStartOutcome(TenderOutcome outcome, DateTimeOffset now)
         {
             if (Status != PaymentIntentStatus.Created)
-                throw ExceptionFactory.PaymentIntentCannotTransition(Id, Status, "be confirmed");
-        }
-
-        public void Confirm(PaymentMethodOption option, TenderOutcome outcome, IIdGenerator idGenerator, DateTimeOffset now)
-        {
-            EnsureConfirmable();
-
-            if (!option.Supports(RequiredGuarantee, CaptureMode))
-                throw ExceptionFactory.PaymentMethodOptionIncompatible(option.Id, RequiredGuarantee, CaptureMode);
+                throw ExceptionFactory.ProviderOutcomeCannotBeRecorded(Id, Status, outcome.Kind);
 
             if (outcome.Kind == TenderOutcomeKind.Released)
                 throw ExceptionFactory.ProviderOutcomeIsNotExpected(Id, outcome.Kind);
 
-            SelectedPaymentMethodOptionId = option.Id;
-            SelectedTenderType = option.TenderType;
-
             Apply(outcome);
-            Changed(idGenerator, now);
+            Touch(now);
         }
 
-        /// <summary>
-        /// Records a server-side verified provider outcome. Money that the provider captured after the intent was
-        /// closed, or for a superseded payable instruction, is recorded truthfully but never exposed as guarantee.
-        /// </summary>
-        public void RecordVerifiedOutcome(TenderOutcome outcome, bool instructionSuperseded, IIdGenerator idGenerator, DateTimeOffset now)
+        public bool RecordVerifiedOutcome(TenderOutcome outcome, bool unapplied, DateTimeOffset now)
         {
-            var unappliedReason = Status switch
+            var arrivedLate = Status switch
             {
                 PaymentIntentStatus.RequiresCustomerAction or PaymentIntentStatus.Processing
-                    when outcome.Kind is not TenderOutcomeKind.Released => instructionSuperseded && outcome.Kind == TenderOutcomeKind.Captured
-                        ? PaidUnappliedReason.PayableInstructionSuperseded
-                        : null,
-                PaymentIntentStatus.Cancelled when outcome.Kind == TenderOutcomeKind.Captured => PaidUnappliedReason.PaymentIntentCancelled,
-                PaymentIntentStatus.Expired when outcome.Kind == TenderOutcomeKind.Captured => PaidUnappliedReason.PaymentIntentExpired,
+                    when outcome.Kind != TenderOutcomeKind.Released => false,
+                PaymentIntentStatus.Cancelled or PaymentIntentStatus.Expired
+                    when outcome.Kind == TenderOutcomeKind.Captured => true,
                 _ => throw ExceptionFactory.ProviderOutcomeCannotBeRecorded(Id, Status, outcome.Kind)
             };
 
             if (outcome.Kind == TenderOutcomeKind.RequiresCustomerAction && Status == PaymentIntentStatus.RequiresCustomerAction && NextAction == outcome.CustomerAction)
-                return;
+                return false;
 
             if (outcome.Kind == TenderOutcomeKind.Processing && Status == PaymentIntentStatus.Processing)
-                return;
+                return false;
 
             Apply(outcome);
 
-            if (unappliedReason is not null)
+            if (arrivedLate || unapplied)
             {
                 GuaranteedAmount = 0;
                 GuaranteeExpiresAt = null;
             }
 
-            Changed(idGenerator, now);
-
-            if (unappliedReason is not null)
-                RecordPaidUnapplied(unappliedReason, idGenerator, now);
+            Touch(now);
+            return arrivedLate;
         }
 
-        public decimal EnsureCapturable(decimal? requestedAmount)
+        public void Cancel(DateTimeOffset now)
         {
-            if (Status is not (PaymentIntentStatus.Authorized or PaymentIntentStatus.PartiallyCaptured))
-                throw ExceptionFactory.PaymentIntentCannotTransition(Id, Status, "be captured");
-
-            if (CaptureMode != PaymentCaptureMode.Manual)
-                throw ExceptionFactory.CaptureIsNotAllowedForCaptureMode(Id, CaptureMode);
-
-            var amount = requestedAmount ?? CapturableAmount;
-
-            if (amount <= 0 || amount > CapturableAmount)
-                throw ExceptionFactory.CaptureAmountExceedsCapturable(Id, amount, CapturableAmount);
-
-            return amount;
-        }
-
-        public void RecordCapture(decimal amount, bool finalCapture, IIdGenerator idGenerator, DateTimeOffset now)
-        {
-            EnsureCapturable(amount);
-
-            CapturedAmount += amount;
-
-            if (finalCapture || CapturedAmount == AuthorizedAmount)
-            {
-                Status = PaymentIntentStatus.Captured;
-                GuaranteedAmount = CapturedAmount;
-                GuaranteeExpiresAt = null;
-            }
-            else
-            {
-                Status = PaymentIntentStatus.PartiallyCaptured;
-                GuaranteedAmount = RequiredGuarantee == RequiredGuarantee.PaidBeforeIssuance
-                    ? CapturedAmount
-                    : Math.Max(GuaranteedAmount, CapturedAmount);
-            }
-
-            Changed(idGenerator, now);
-        }
-
-        public void EnsureCancellable()
-        {
-            switch (Status)
-            {
-                case PaymentIntentStatus.Created:
-                case PaymentIntentStatus.RequiresCustomerAction:
-                case PaymentIntentStatus.Authorized:
-                case PaymentIntentStatus.Cancelled:
-                    return;
-
-                case PaymentIntentStatus.Processing:
-                    throw ExceptionFactory.PaymentIntentOutcomePending(Id);
-
-                case PaymentIntentStatus.PartiallyCaptured:
-                case PaymentIntentStatus.Captured:
-                    throw ExceptionFactory.CapturedPaymentIntentCannotBeCancelled(Id, CapturedAmount);
-
-                default:
-                    throw ExceptionFactory.PaymentIntentCannotTransition(Id, Status, "be cancelled");
-            }
-        }
-
-        public void Cancel(IIdGenerator idGenerator, DateTimeOffset now)
-        {
-            EnsureCancellable();
-
-            if (Status == PaymentIntentStatus.Cancelled)
-                return;
+            if (Status is not (PaymentIntentStatus.Created or PaymentIntentStatus.RequiresCustomerAction or PaymentIntentStatus.Authorized))
+                throw ExceptionFactory.PaymentIntentCannotTransition(Id, Status, "be cancelled");
 
             Status = PaymentIntentStatus.Cancelled;
             NextAction = null;
             GuaranteedAmount = 0;
             GuaranteeExpiresAt = null;
-
-            Changed(idGenerator, now);
+            Touch(now);
         }
 
         public bool IsDueForExpiryAt(DateTimeOffset now) => Status switch
         {
-            PaymentIntentStatus.Created => IntentExpiresAt <= now,
-            PaymentIntentStatus.RequiresCustomerAction => IntentExpiresAt <= now || NextAction?.ExpiresAt <= now,
-            PaymentIntentStatus.Authorized => GuaranteeExpiresAt <= now || IntentExpiresAt <= now,
-            PaymentIntentStatus.PartiallyCaptured => GuaranteedAmount > CapturedAmount && GuaranteeExpiresAt <= now,
+            PaymentIntentStatus.RequiresCustomerAction => NextAction?.ExpiresAt <= now,
+            PaymentIntentStatus.Authorized => GuaranteeExpiresAt <= now,
             _ => false
         };
 
-        /// <summary>
-        /// An expired guarantee contributes zero; the historical <see cref="AuthorizedAmount"/> and
-        /// <see cref="GuaranteeExpiresAt"/> are kept as evidence.
-        /// </summary>
-        public bool ExpireIfDue(IIdGenerator idGenerator, DateTimeOffset now)
+        public bool ExpireIfDue(DateTimeOffset now)
         {
             if (!IsDueForExpiryAt(now))
                 return false;
 
-            if (Status == PaymentIntentStatus.PartiallyCaptured)
-            {
-                GuaranteedAmount = CapturedAmount;
-                GuaranteeExpiresAt = null;
-            }
-            else
-            {
-                Status = PaymentIntentStatus.Expired;
-                NextAction = null;
-                GuaranteedAmount = 0;
-            }
-
-            Changed(idGenerator, now);
+            Expire(now);
             return true;
+        }
+
+        public void Expire(DateTimeOffset now)
+        {
+            if (Status is not (PaymentIntentStatus.Created or PaymentIntentStatus.RequiresCustomerAction or PaymentIntentStatus.Authorized))
+                throw ExceptionFactory.PaymentIntentCannotTransition(Id, Status, "expire");
+
+            Status = PaymentIntentStatus.Expired;
+            NextAction = null;
+            GuaranteedAmount = 0;
+            Touch(now);
         }
 
         private void Apply(TenderOutcome outcome)
         {
+            if (outcome.ProviderReference is not null)
+                ProviderReference = outcome.ProviderReference;
+
             switch (outcome.Kind)
             {
                 case TenderOutcomeKind.RequiresCustomerAction:
@@ -310,19 +202,17 @@ namespace AeroTech.JetPay.Domain.PaymentIntentAggregate
                     if (CaptureMode != PaymentCaptureMode.Manual)
                         throw ExceptionFactory.ProviderOutcomeIsNotExpected(Id, outcome.Kind);
 
-                    EnsureFullAmount(outcome.Amount);
+                    EnsureRequestedAmount(outcome.Amount);
 
                     Status = PaymentIntentStatus.Authorized;
                     NextAction = null;
                     AuthorizedAmount = outcome.Amount;
-
-                    var guaranteed = RequiredGuarantee == RequiredGuarantee.AuthorizedBeforeIssuance && outcome.IssuanceGuarantee;
-                    GuaranteedAmount = guaranteed ? outcome.Amount : 0;
-                    GuaranteeExpiresAt = guaranteed ? outcome.AuthorizationExpiresAt : null;
+                    GuaranteedAmount = outcome.IssuanceGuarantee ? outcome.Amount : 0;
+                    GuaranteeExpiresAt = outcome.IssuanceGuarantee ? outcome.AuthorizationExpiresAt : null;
                     break;
 
                 case TenderOutcomeKind.Captured:
-                    EnsureFullAmount(outcome.Amount);
+                    EnsureRequestedAmount(outcome.Amount);
 
                     Status = PaymentIntentStatus.Captured;
                     NextAction = null;
@@ -348,77 +238,19 @@ namespace AeroTech.JetPay.Domain.PaymentIntentAggregate
             }
         }
 
-        private void EnsureFullAmount(decimal amount)
+        private void EnsureRequestedAmount(decimal amount)
         {
             if (amount != RequestedAmount)
                 throw ExceptionFactory.ProviderAmountMismatch(Id, amount, RequestedAmount);
         }
 
-        private void RecordPaidUnapplied(string reasonCode, IIdGenerator idGenerator, DateTimeOffset now)
+        private void Touch(DateTimeOffset now)
         {
-            if (CapturedAmount <= 0)
-                throw ExceptionFactory.PaidUnappliedRequiresCapturedMoney(Id);
-
-            Causes(new PaymentPaidUnapplied(
-                NewEventId(idGenerator),
-                Id,
-                now,
-                Id,
-                OrderId,
-                PayableInstructionId,
-                CapturedAmount,
-                CurrencyId,
-                reasonCode,
-                now));
-        }
-
-        private void Changed(IIdGenerator idGenerator, DateTimeOffset now)
-        {
-            EnsureInvariants();
+            if (GuaranteedAmount < 0 || GuaranteedAmount > RequestedAmount || CapturedAmount < 0 || CapturedAmount > RequestedAmount || CapturedAmount > AuthorizedAmount)
+                throw ExceptionFactory.InvariantViolation(Id, "0 <= Captured <= Authorized <= Requested and 0 <= Guaranteed <= Requested");
 
             Version++;
             UpdatedAt = now;
-
-            Causes(new PaymentIntentChanged(
-                NewEventId(idGenerator),
-                Id,
-                now,
-                Id,
-                PayableInstructionId,
-                OrderId,
-                CommercialVersion,
-                Purpose,
-                Status,
-                RequiredGuarantee,
-                CaptureMode,
-                RequestedAmount,
-                AuthorizedAmount,
-                GuaranteedAmount,
-                CapturedAmount,
-                CurrencyId,
-                GuaranteeExpiresAt,
-                IntentExpiresAt,
-                Version,
-                FailureCode,
-                now));
         }
-
-        private void EnsureInvariants()
-        {
-            if (GuaranteedAmount < 0 || GuaranteedAmount > RequestedAmount)
-                throw ExceptionFactory.InvariantViolation(Id, "0 <= GuaranteedAmount <= RequestedAmount");
-
-            if (CapturedAmount < 0 || CapturedAmount > RequestedAmount)
-                throw ExceptionFactory.InvariantViolation(Id, "0 <= CapturedAmount <= RequestedAmount");
-
-            if (CapturedAmount > AuthorizedAmount)
-                throw ExceptionFactory.InvariantViolation(Id, "CapturedAmount <= AuthorizedAmount");
-
-            if (RequiredGuarantee == RequiredGuarantee.PaidBeforeIssuance && GuaranteedAmount > CapturedAmount)
-                throw ExceptionFactory.InvariantViolation(Id, "GuaranteedAmount <= CapturedAmount for PaidBeforeIssuance");
-        }
-
-        private static string NewEventId(IIdGenerator idGenerator)
-            => idGenerator.NewId().ToString(CultureInfo.InvariantCulture);
     }
 }

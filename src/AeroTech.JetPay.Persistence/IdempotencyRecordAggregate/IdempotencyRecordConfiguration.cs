@@ -15,10 +15,15 @@ namespace AeroTech.JetPay.Persistence.IdempotencyRecordAggregate
             builder.Property(record => record.Scope).HasMaxLength(64).IsRequired();
             builder.Property(record => record.IdempotencyKey).HasMaxLength(100).IsRequired();
             builder.Property(record => record.RequestFingerprint).HasMaxLength(64).IsRequired();
-            builder.Property(record => record.PaymentIntentId).HasMaxLength(64).IsRequired();
+            builder.Property(record => record.PaymentSessionId).HasMaxLength(64).IsRequired();
+
+            builder.PrimitiveCollection(record => record.PaymentIntentIds)
+                .HasField("_paymentIntentIds")
+                .UsePropertyAccessMode(PropertyAccessMode.Field)
+                .IsRequired();
 
             builder.HasIndex(record => new { record.Operation, record.Scope, record.IdempotencyKey }).IsUnique();
-            builder.HasIndex(record => record.PaymentIntentId);
+            builder.HasIndex(record => record.PaymentSessionId);
         }
     }
 }

@@ -3,10 +3,12 @@ using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Framework.Infrastructure.HealthChecks;
 using AeroTech.JetPay.Domain.IdempotencyRecordAggregate.Contracts;
 using AeroTech.JetPay.Domain.PaymentIntentAggregate.Contracts;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate.Contracts;
 using AeroTech.JetPay.Persistence.IdempotencyRecordAggregate;
 using AeroTech.JetPay.Persistence.Inbox;
 using AeroTech.JetPay.Persistence.Outbox;
 using AeroTech.JetPay.Persistence.PaymentIntentAggregate;
+using AeroTech.JetPay.Persistence.PaymentSessionAggregate;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +27,7 @@ namespace AeroTech.JetPay.Persistence
                 sql => sql.MigrationsHistoryTable(JetPayDbContext.MigrationsHistoryTable, JetPayDbContext.MigrationsHistorySchema)));
 
             services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<JetPayDbContext>());
+            services.AddScoped<IPaymentSessionRepository, PaymentSessionRepository>();
             services.AddScoped<IPaymentIntentRepository, PaymentIntentRepository>();
             services.AddScoped<IIdempotencyRecordRepository, IdempotencyRecordRepository>();
 

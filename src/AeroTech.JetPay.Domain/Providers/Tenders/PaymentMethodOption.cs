@@ -6,21 +6,16 @@ namespace AeroTech.JetPay.Domain.Providers.Tenders
         string Id,
         TenderType TenderType,
         string DisplayCode,
-        CustomerActionType CustomerActionType,
-        IReadOnlyList<RequiredGuarantee> SupportedGuarantees,
-        IReadOnlyList<PaymentCaptureMode> SupportedCaptureModes)
-    {
-        public bool Supports(RequiredGuarantee guarantee, PaymentCaptureMode captureMode)
-            => SupportedGuarantees.Contains(guarantee) && SupportedCaptureModes.Contains(captureMode);
-    }
-
-    public sealed record PaymentMethodEligibilityQuery(
-        long OrderId,
-        string OrderReference,
-        int CommercialVersion,
-        PayerType PayerType,
-        long PayerId,
-        decimal Amount,
         int CurrencyId,
-        string? SalesChannel);
+        decimal? AvailableAmount,
+        decimal? MinimumAmount,
+        decimal? MaximumAmount,
+        bool SupportsPartialAmount,
+        bool IsDefault,
+        bool CanAutoSelect,
+        CustomerActionType CustomerActionType,
+        PaymentAssuranceCapability AssuranceCapability,
+        PaymentCaptureMode CaptureMode,
+        DateTimeOffset? ExpiresAt,
+        string? FundingReference);
 }

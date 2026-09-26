@@ -4,7 +4,6 @@ using AeroTech.Messages;
 
 namespace AeroTech.JetPay.Application.AcceptanceTests.Fakes;
 
-/// <summary>Stamps the envelope exactly as the persistence OutboxWriter does and records what would be published.</summary>
 public sealed class RecordingOutboxWriter : IOutboxWriter
 {
     private readonly List<object> _written = [];

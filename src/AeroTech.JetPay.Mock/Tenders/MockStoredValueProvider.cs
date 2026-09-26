@@ -1,41 +1,40 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.JetPay.Domain.Providers.Tenders;
-using AeroTech.JetPay.Mock.Configuration;
-using AeroTech.JetPay.Mock.Scenarios;
+using AeroTech.JetPay.Mock.Funding;
 using AeroTech.Messages.JetPay.Enums;
-using Microsoft.Extensions.Options;
 
 namespace AeroTech.JetPay.Mock.Tenders
 {
-    /// <summary>Stored value: full-amount immediate debit, no customer redirect.</summary>
-    public sealed class MockStoredValueProvider : MockTenderProvider
+    public sealed class MockStoredValueProvider : ITenderProvider
     {
-        private static readonly MockScenario[] Scenarios =
-        [
-            MockScenario.StoredValueCaptured,
-            MockScenario.StoredValueInsufficientBalance,
-            MockScenario.PaymentProcessing
-        ];
+        private readonly MockFundingLedger _ledger;
+        private readonly IClock _clock;
 
-        public MockStoredValueProvider(MockScenarioRegistry scenarios, IOptions<MockJetPayOptions> options, IClock clock)
-            : base(scenarios, options, clock)
+        public MockStoredValueProvider(MockFundingLedger ledger, IClock clock)
         {
+            _ledger = ledger;
+            _clock = clock;
         }
 
-        public override TenderType TenderType => TenderType.StoredValue;
+        public TenderType TenderType => TenderType.StoredValue;
 
-        protected override MockScenario DefaultScenario => MockScenario.StoredValueCaptured;
-
-        protected override IReadOnlyCollection<MockScenario> SupportedScenarios => Scenarios;
-
-        protected override TenderOutcome Start(MockScenario scenario, TenderStartRequest request) => scenario switch
+        public Task<TenderOutcome> StartAsync(TenderStartRequest request, CancellationToken cancellationToken = default)
         {
-            MockScenario.StoredValueInsufficientBalance => TenderOutcome.Failed("InsufficientFunds", "The stored-value balance does not cover the amount."),
-            MockScenario.PaymentProcessing => TenderOutcome.Processing(),
-            _ => TenderOutcome.Captured(request.Amount)
-        };
+            var (debit, failureCode) = _ledger.DebitWallet(request.IdempotencyKey, request.FundingReference ?? string.Empty, request.Amount, _clock.GetDateTime());
 
-        protected override TenderOutcome Verify(MockScenario scenario, TenderVerifyRequest request)
-            => TenderOutcome.Captured(request.Amount);
+            return Task.FromResult(debit is not null
+                ? TenderOutcome.Captured(debit.Amount, $"{debit.Reference}|{debit.Key}")
+                : TenderOutcome.Failed(failureCode!, failureCode == "InsufficientFunds"
+                    ? "The wallet balance does not cover the amount."
+                    : "The wallet is not available."));
+        }
+
+        public Task<TenderOutcome> VerifyAsync(TenderVerifyRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(_ledger.FindOperation(request.IdempotencyKey) is { Kind: MockOperationKind.WalletDebit } debit
+                ? TenderOutcome.Captured(debit.Amount, $"{debit.Reference}|{debit.Key}")
+                : TenderOutcome.Failed("NoProviderEffect", "The wallet has no debit for this attempt."));
+
+        public Task<TenderOutcome> ReleaseAsync(TenderReleaseRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(TenderOutcome.Released());
     }
 }

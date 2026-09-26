@@ -3,10 +3,6 @@ using Microsoft.AspNetCore.Http;
 
 namespace AeroTech.JetPay.Mock.Faults
 {
-    /// <summary>
-    /// Lets a service-to-service mutation run and commit, then drops its response and answers 504. The caller learns
-    /// nothing about the business outcome and must read the intent back; no business status is invented.
-    /// </summary>
     public sealed class SimulatedTransportTimeoutMiddleware
     {
         private readonly RequestDelegate _next;

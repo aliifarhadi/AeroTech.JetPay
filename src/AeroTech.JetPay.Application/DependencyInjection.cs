@@ -1,5 +1,6 @@
 using AeroTech.Framework.Core.ServiceContracts;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Services;
+using AeroTech.JetPay.Application.PaymentMethodOptions.Services;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Services;
 using AeroTech.JetPay.Application._Shared.Behaviors;
 using AeroTech.JetPay.Application._Shared.Events;
 using AeroTech.JetPay.Application._Shared.Idempotency;
@@ -24,15 +25,19 @@ namespace AeroTech.JetPay.Application
 
             services.AddScoped<IDomainEventDispatcher, MediatRDomainEventDispatcher>();
 
-            var paymentIntents = configuration.GetSection(PaymentIntentOptions.SectionName);
+            var paymentSessions = configuration.GetSection(PaymentSessionOptions.SectionName);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
-                paymentIntents.Get<PaymentIntentOptions>()?.LockExpirySeconds ?? 0,
-                $"{PaymentIntentOptions.SectionName}:{nameof(PaymentIntentOptions.LockExpirySeconds)}");
+                paymentSessions.Get<PaymentSessionOptions>()?.LockExpirySeconds ?? 0,
+                $"{PaymentSessionOptions.SectionName}:{nameof(PaymentSessionOptions.LockExpirySeconds)}");
 
-            services.Configure<PaymentIntentOptions>(paymentIntents);
+            services.Configure<PaymentSessionOptions>(paymentSessions);
+            services.Configure<PaymentAcceptancePolicyOptions>(configuration.GetSection(PaymentAcceptancePolicyOptions.SectionName));
+
             services.AddScoped<IIdempotencyGuard, IdempotencyGuard>();
-            services.AddScoped<IPaymentIntentLock, PaymentIntentLock>();
+            services.AddScoped<IPaymentSessionLock, PaymentSessionLock>();
             services.AddScoped<ITenderProviderResolver, TenderProviderResolver>();
+            services.AddScoped<IPaymentSessionFunding, PaymentSessionFunding>();
+            services.AddScoped<IPaymentMethodOptionResolver, PaymentMethodOptionResolver>();
 
             return services;
         }

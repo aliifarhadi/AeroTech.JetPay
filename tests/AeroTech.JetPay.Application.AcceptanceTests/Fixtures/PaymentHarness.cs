@@ -2,23 +2,23 @@ using AeroTech.Framework.Core.Domain.Exceptions;
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.JetPay.Application.AcceptanceTests.Fakes;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Commands.CancelPaymentIntent;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Commands.CapturePaymentIntent;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Commands.ConfirmPaymentIntent;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Commands.CreatePaymentIntent;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Commands.ExpireDuePaymentIntents;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Commands.VerifyPaymentIntent;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Queries.GetPaymentIntentById;
-using AeroTech.JetPay.Application.PaymentIntentAggregate.Views;
 using AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymentMethodOptions;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CancelPaymentSession;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ConfirmPaymentSession;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CreatePaymentSession;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ExpireDuePayments;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.VerifyPaymentIntent;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Queries.GetPaymentSessionById;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Views;
 using AeroTech.JetPay.Domain.IdempotencyRecordAggregate.Contracts;
 using AeroTech.JetPay.Domain.PaymentIntentAggregate.Contracts;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate.Contracts;
+using AeroTech.JetPay.Domain.Providers.Tenders;
 using AeroTech.JetPay.Mock;
-using AeroTech.JetPay.Mock.Configuration;
-using AeroTech.JetPay.Mock.Scenarios;
-using AeroTech.JetPay.Mock.Tenders;
+using AeroTech.JetPay.Mock.Funding;
 using AeroTech.Messages.JetPay.Enums;
 using AeroTech.Messages.JetPay.IntegrationEvents.V1;
+using AeroTech.Messages.Shared.Enums;
 using MediatR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,26 +27,29 @@ using Xunit;
 
 namespace AeroTech.JetPay.Application.AcceptanceTests.Fixtures;
 
-/// <summary>
-/// Drives MockJetPay through the real MediatR pipeline (validation included) with the real mock tender adapters;
-/// only persistence, clock, ids, lock and outbox are in-memory fakes.
-/// </summary>
 public sealed class PaymentHarness : IDisposable
 {
-    public const long PayerId = 7001;
-    public const int CurrencyId = 364;
-    public const decimal Amount = 1_250_000m;
+    public const int Irr = 70;
+    public const int Usd = 840;
+    public const long CustomerId = 7001;
+    public const long AgencyId = 8001;
+    public const long CorporateId = 9001;
+    public const long CashOfficeId = 501;
+    public const long EmployeeId = 42;
+    public const decimal Amount = 1_000_000m;
 
     private readonly ServiceProvider _provider;
     private readonly IServiceScope _scope;
+    private readonly HashSet<TenderType> _crashBeforeDispatch = [];
     private int _keys;
 
-    public PaymentHarness(Action<MockJetPayOptions>? configureMock = null)
+    public PaymentHarness(bool allowPgwForStaffAssisted = false)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["PaymentIntents:LockExpirySeconds"] = "30",
+                ["PaymentSessions:LockExpirySeconds"] = "30",
+                ["PaymentAcceptancePolicy:AllowPgwForStaffAssisted"] = allowPgwForStaffAssisted.ToString(),
                 ["MockJetPay:Enabled"] = "true",
                 ["MockJetPay:PublicBaseUrl"] = "http://mock.jetpay.test"
             })
@@ -56,9 +59,7 @@ public sealed class PaymentHarness : IDisposable
         services.AddLogging();
         services.AddApplication(configuration);
         services.AddMockJetPay(configuration);
-
-        if (configureMock is not null)
-            services.PostConfigure(configureMock);
+        WrapTenderProvidersForCrashes(services);
 
         services.Replace(ServiceDescriptor.Singleton<IClock>(Clock));
         services.AddSingleton<IIdGenerator>(Ids);
@@ -66,6 +67,8 @@ public sealed class PaymentHarness : IDisposable
         services.AddSingleton<IOutboxWriter>(Outbox);
         services.AddScoped<InMemoryUnitOfWork>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<InMemoryUnitOfWork>());
+        services.AddScoped<InMemoryPaymentSessionRepository>();
+        services.AddScoped<IPaymentSessionRepository>(provider => provider.GetRequiredService<InMemoryPaymentSessionRepository>());
         services.AddScoped<InMemoryPaymentIntentRepository>();
         services.AddScoped<IPaymentIntentRepository>(provider => provider.GetRequiredService<InMemoryPaymentIntentRepository>());
         services.AddScoped<InMemoryIdempotencyRecordRepository>();
@@ -83,25 +86,44 @@ public sealed class PaymentHarness : IDisposable
 
     public RecordingOutboxWriter Outbox { get; } = new();
 
-    public MockScenarioRegistry Scenarios => _provider.GetRequiredService<MockScenarioRegistry>();
+    public MockFundingLedger Ledger => _provider.GetRequiredService<MockFundingLedger>();
+
+    public InMemoryPaymentSessionRepository Sessions => _scope.ServiceProvider.GetRequiredService<InMemoryPaymentSessionRepository>();
 
     public InMemoryPaymentIntentRepository Intents => _scope.ServiceProvider.GetRequiredService<InMemoryPaymentIntentRepository>();
 
-    public InMemoryIdempotencyRecordRepository IdempotencyRecords => _scope.ServiceProvider.GetRequiredService<InMemoryIdempotencyRecordRepository>();
+    public static PaymentInitiatorContextView Web => new(SalesChannel.IBE, "Customer", CustomerId, null);
+
+    public static PaymentInitiatorContextView AgencyApi => new(SalesChannel.PartnerAPI, "AgencyApiPrincipal", 88, null);
+
+    public static PaymentInitiatorContextView BackOffice(long officeId = CashOfficeId) => new(SalesChannel.BackOffice, "AirlineEmployee", EmployeeId, officeId);
+
+    public MockWallet Wallet(PayerType payerType, long payerId, decimal balance, bool isDefault = false, int currencyId = Irr, string code = "main")
+        => Ledger.SetWallet(payerType, payerId, currencyId, code, balance, isDefault);
+
+    public MockCreditFacility Credit(TenderType tenderType, PayerType payerType, long payerId, decimal limit, int? validitySeconds = null, int currencyId = Irr)
+        => Ledger.SetCreditFacility(tenderType, payerType, payerId, currencyId, limit, validitySeconds);
+
+    public void AcceptCashAt(long officeId = CashOfficeId) => Ledger.SetCashAcceptance([officeId], []);
+
+    public void CrashBeforeNextDispatchOf(TenderType tenderType) => _crashBeforeDispatch.Add(tenderType);
 
     public string NewKey() => $"idem-{Interlocked.Increment(ref _keys)}";
 
     public Task<T> SendAsync<T>(IRequest<T> request) => _scope.ServiceProvider.GetRequiredService<IMediator>().Send(request);
 
-    public static CreatePaymentIntentCommand CreateCommand(
+    public static CreatePaymentSessionCommand CreateCommand(
         string idempotencyKey,
+        PayerType payerType = PayerType.Customer,
+        long payerId = CustomerId,
+        PaymentInteractionMode interactionMode = PaymentInteractionMode.CustomerInteractive,
+        PaymentAssuranceRequirement assurance = PaymentAssuranceRequirement.IssuanceGuaranteed,
+        PaymentInitiatorContextView? initiator = null,
+        decimal amount = Amount,
+        int currencyId = Irr,
         long orderId = 5001,
         int commercialVersion = 1,
-        decimal amount = Amount,
-        PayerType payerType = PayerType.Customer,
-        RequiredGuarantee guarantee = RequiredGuarantee.PaidBeforeIssuance,
-        PaymentCaptureMode captureMode = PaymentCaptureMode.Automatic,
-        DateTimeOffset? intentExpiresAt = null,
+        DateTimeOffset? expiresAt = null,
         string? payableInstructionId = null)
         => new(
             idempotencyKey,
@@ -111,77 +133,101 @@ public sealed class PaymentHarness : IDisposable
             commercialVersion,
             PaymentPurpose.InitialSale,
             payerType,
-            PayerId,
+            payerId,
+            initiator ?? DefaultInitiator(interactionMode),
             amount,
-            CurrencyId,
-            guarantee,
-            captureMode,
-            intentExpiresAt);
+            currencyId,
+            assurance,
+            interactionMode,
+            expiresAt);
 
-    public Task<PaymentIntentView> CreateAsync(
+    public Task<PaymentSessionResponse> CreateAsync(
+        PayerType payerType = PayerType.Customer,
+        long payerId = CustomerId,
+        PaymentInteractionMode interactionMode = PaymentInteractionMode.CustomerInteractive,
+        PaymentAssuranceRequirement assurance = PaymentAssuranceRequirement.IssuanceGuaranteed,
+        PaymentInitiatorContextView? initiator = null,
+        decimal amount = Amount,
+        int currencyId = Irr,
         long orderId = 5001,
         int commercialVersion = 1,
-        PayerType payerType = PayerType.Customer,
-        RequiredGuarantee guarantee = RequiredGuarantee.PaidBeforeIssuance,
-        PaymentCaptureMode captureMode = PaymentCaptureMode.Automatic,
-        DateTimeOffset? intentExpiresAt = null)
-        => SendAsync(CreateCommand(NewKey(), orderId, commercialVersion, Amount, payerType, guarantee, captureMode, intentExpiresAt));
+        DateTimeOffset? expiresAt = null)
+        => SendAsync(CreateCommand(NewKey(), payerType, payerId, interactionMode, assurance, initiator, amount, currencyId, orderId, commercialVersion, expiresAt));
 
-    /// <summary>Creates an intent whose terms fit the Stage-3 option for <paramref name="tender"/>.</summary>
-    public Task<PaymentIntentView> CreateForAsync(TenderType tender, long orderId = 5001, int commercialVersion = 1, DateTimeOffset? intentExpiresAt = null)
-        => tender switch
-        {
-            TenderType.IranianPgw or TenderType.StoredValue
-                => CreateAsync(orderId, commercialVersion, PayerType.Customer, RequiredGuarantee.PaidBeforeIssuance, PaymentCaptureMode.Automatic, intentExpiresAt),
-            TenderType.Bnpl
-                => CreateAsync(orderId, commercialVersion, PayerType.Customer, RequiredGuarantee.AuthorizedBeforeIssuance, PaymentCaptureMode.Manual, intentExpiresAt),
-            TenderType.AgencyCredit
-                => CreateAsync(orderId, commercialVersion, PayerType.Agency, RequiredGuarantee.AuthorizedBeforeIssuance, PaymentCaptureMode.Manual, intentExpiresAt),
-            _ => throw new ArgumentOutOfRangeException(nameof(tender), tender, "Not a Stage-3 tender.")
-        };
+    public Task<IReadOnlyList<PaymentMethodOptionView>> OptionsFor(PaymentSessionView session, decimal? amount = null)
+        => SendAsync(new ResolvePaymentMethodOptionsQuery(
+            session.OrderId,
+            session.OrderReference,
+            session.CommercialVersion,
+            session.Purpose,
+            session.PayerType,
+            session.PayerId,
+            session.InitiatorContext,
+            amount ?? session.RequiredAmount,
+            session.CurrencyId,
+            session.AssuranceRequirement,
+            session.InteractionMode));
 
-    public static string OptionFor(TenderType tender) => tender switch
+    public Task<IReadOnlyList<PaymentMethodOptionView>> ResolveAsync(
+        PayerType payerType,
+        long payerId,
+        PaymentInteractionMode interactionMode,
+        PaymentAssuranceRequirement assurance = PaymentAssuranceRequirement.IssuanceGuaranteed,
+        PaymentInitiatorContextView? initiator = null,
+        decimal amount = Amount,
+        int currencyId = Irr)
+        => SendAsync(new ResolvePaymentMethodOptionsQuery(
+            5001,
+            "ORD-5001",
+            1,
+            PaymentPurpose.InitialSale,
+            payerType,
+            payerId,
+            initiator ?? DefaultInitiator(interactionMode),
+            amount,
+            currencyId,
+            assurance,
+            interactionMode));
+
+    public static string OptionOf(IReadOnlyList<PaymentMethodOptionView> options, TenderType tenderType)
+        => options.Single(option => option.TenderType == tenderType).Id;
+
+    public Task<PaymentSessionResponse> ConfirmAsync(string sessionId, IReadOnlyList<PaymentSelection> selections, string? idempotencyKey = null, string? returnUrl = null)
+        => SendAsync(new ConfirmPaymentSessionCommand(idempotencyKey ?? NewKey(), sessionId, PaymentSelectionMode.Explicit, selections, returnUrl));
+
+    public async Task<PaymentSessionResponse> FundAsync(PaymentSessionView session, string? idempotencyKey, params (TenderType Tender, decimal Amount)[] legs)
     {
-        TenderType.IranianPgw => MockPaymentMethodOptionCatalog.IranianPgwOptionId,
-        TenderType.StoredValue => MockPaymentMethodOptionCatalog.StoredValueOptionId,
-        TenderType.Bnpl => MockPaymentMethodOptionCatalog.BnplOptionId,
-        TenderType.AgencyCredit => MockPaymentMethodOptionCatalog.AgencyCreditOptionId,
-        _ => throw new ArgumentOutOfRangeException(nameof(tender), tender, "Not a Stage-3 tender.")
-    };
-
-    public async Task<PaymentIntentView> CreateAndConfirmAsync(TenderType tender, long orderId = 5001, int commercialVersion = 1)
-    {
-        var intent = await CreateForAsync(tender, orderId, commercialVersion);
-        return await ConfirmAsync(intent.Id, OptionFor(tender));
+        var options = await OptionsFor(session, legs.Sum(leg => leg.Amount));
+        return await ConfirmAsync(session.Id, legs.Select(leg => new PaymentSelection(OptionOf(options, leg.Tender), leg.Amount)).ToList(), idempotencyKey);
     }
 
-    public Task<PaymentIntentView> ConfirmAsync(string paymentIntentId, string optionId, string? idempotencyKey = null, string? returnUrl = null)
-        => SendAsync(new ConfirmPaymentIntentCommand(idempotencyKey ?? NewKey(), paymentIntentId, optionId, returnUrl));
+    public Task<PaymentSessionResponse> ConfirmDefaultAsync(string sessionId, string? idempotencyKey = null)
+        => SendAsync(new ConfirmPaymentSessionCommand(idempotencyKey ?? NewKey(), sessionId, PaymentSelectionMode.Default, [], null));
 
-    public Task<PaymentIntentView> CompleteCustomerActionAsync(string paymentIntentId)
-        => SendAsync(new VerifyPaymentIntentCommand(paymentIntentId));
+    public Task<PaymentSessionResponse> CompleteAsync(string paymentIntentId, MockCustomerOutcome outcome = MockCustomerOutcome.Approved)
+    {
+        Ledger.SetCustomerOutcome(paymentIntentId, outcome);
+        return SendAsync(new VerifyPaymentIntentCommand(paymentIntentId));
+    }
 
-    public Task<PaymentIntentView> CaptureAsync(string paymentIntentId, decimal? amount = null, bool finalCapture = true, string? idempotencyKey = null)
-        => SendAsync(new CapturePaymentIntentCommand(idempotencyKey ?? NewKey(), paymentIntentId, amount, finalCapture));
+    public Task<PaymentSessionResponse> ReconcileAsync(string paymentIntentId) => SendAsync(new VerifyPaymentIntentCommand(paymentIntentId));
 
-    public Task<PaymentIntentView> CancelAsync(
-        string paymentIntentId,
-        PaymentCancellationReason reason = PaymentCancellationReason.Abandoned,
-        string? idempotencyKey = null)
-        => SendAsync(new CancelPaymentIntentCommand(idempotencyKey ?? NewKey(), paymentIntentId, reason));
+    public Task<PaymentSessionResponse> CancelAsync(string sessionId, string? idempotencyKey = null)
+        => SendAsync(new CancelPaymentSessionCommand(idempotencyKey ?? NewKey(), sessionId));
 
-    public Task<PaymentIntentView> GetAsync(string paymentIntentId) => SendAsync(new GetPaymentIntentByIdQuery(paymentIntentId));
+    public Task<PaymentSessionResponse> GetAsync(string sessionId) => SendAsync(new GetPaymentSessionByIdQuery(sessionId));
 
-    public Task<int> ExpireDueAsync() => SendAsync(new ExpireDuePaymentIntentsCommand(100));
+    public Task<int> ExpireDueAsync() => SendAsync(new ExpireDuePaymentsCommand(100));
 
-    public Task<IReadOnlyList<PaymentMethodOptionView>> ResolveAsync(PayerType payerType, long orderId = 5001)
-        => SendAsync(new ResolvePaymentMethodOptionsQuery(orderId, $"ORD-{orderId}", 1, payerType, PayerId, Amount, CurrencyId, "Web"));
+    public IReadOnlyList<PaymentSessionChanged> ChangesOf(string sessionId)
+        => Outbox.Written.OfType<PaymentSessionChanged>().Where(change => change.PaymentSessionId == sessionId).ToList();
 
-    public IReadOnlyList<PaymentIntentChanged> ChangesOf(string paymentIntentId)
-        => Outbox.Written.OfType<PaymentIntentChanged>().Where(change => change.PaymentIntentId == paymentIntentId).ToList();
+    public IReadOnlyList<PaymentPaidUnapplied> PaidUnapplied() => Outbox.Written.OfType<PaymentPaidUnapplied>().ToList();
 
-    public IReadOnlyList<PaymentPaidUnapplied> PaidUnapplied()
-        => Outbox.Written.OfType<PaymentPaidUnapplied>().ToList();
+    public IReadOnlyList<MockOperation> OperationsOf(MockOperationKind kind) => Ledger.Operations.Where(operation => operation.Kind == kind).ToList();
+
+    public static PaymentIntentView Leg(PaymentSessionResponse response, TenderType tenderType)
+        => response.PaymentIntents.Last(intent => intent.TenderType == tenderType);
 
     public static async Task<BusinessException> AssertRejectedAsync(int code, Func<Task> action)
     {
@@ -194,5 +240,30 @@ public sealed class PaymentHarness : IDisposable
     {
         _scope.Dispose();
         _provider.Dispose();
+    }
+
+    private static PaymentInitiatorContextView DefaultInitiator(PaymentInteractionMode interactionMode) => interactionMode switch
+    {
+        PaymentInteractionMode.UnattendedApi => AgencyApi,
+        PaymentInteractionMode.StaffAssisted => BackOffice(),
+        _ => Web
+    };
+
+    private void WrapTenderProvidersForCrashes(IServiceCollection services)
+    {
+        var registrations = services.Where(descriptor => descriptor.ServiceType == typeof(ITenderProvider)).ToList();
+
+        foreach (var registration in registrations)
+        {
+            services.Remove(registration);
+            services.AddScoped<ITenderProvider>(provider =>
+            {
+                var inner = registration.ImplementationFactory is { } factory
+                    ? (ITenderProvider)factory(provider)
+                    : (ITenderProvider)ActivatorUtilities.CreateInstance(provider, registration.ImplementationType!);
+
+                return new CrashingTenderProvider(inner, () => _crashBeforeDispatch.Remove(inner.TenderType));
+            });
+        }
     }
 }

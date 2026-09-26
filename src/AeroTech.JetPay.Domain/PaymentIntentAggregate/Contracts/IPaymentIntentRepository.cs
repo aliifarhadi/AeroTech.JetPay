@@ -6,10 +6,8 @@ namespace AeroTech.JetPay.Domain.PaymentIntentAggregate.Contracts
 
         Task<PaymentIntent?> GetAsync(string id, CancellationToken cancellationToken = default);
 
-        Task<PaymentIntent?> FindActiveByPayableInstructionAsync(string payableInstructionId, CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<PaymentIntent>> ListBySessionAsync(string paymentSessionId, CancellationToken cancellationToken = default);
 
-        Task<bool> HasNewerCommercialVersionAsync(long orderId, int commercialVersion, CancellationToken cancellationToken = default);
-
-        Task<IReadOnlyList<string>> ListDueForExpiryAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<string>> ListSessionsWithLegsDueForExpiryAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default);
     }
 }

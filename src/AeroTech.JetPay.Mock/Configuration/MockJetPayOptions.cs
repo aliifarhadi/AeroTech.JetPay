@@ -6,34 +6,14 @@ namespace AeroTech.JetPay.Mock.Configuration
 
         public bool Enabled { get; set; }
 
-        public string PublicBaseUrl { get; set; } = "http://localhost:5061";
+        public string PublicBaseUrl { get; set; } = "http://localhost:4747";
 
         public int CustomerActionTtlSeconds { get; set; } = 900;
 
-        /// <summary>Customer-action lifetime used by the <c>PaymentExpired</c> scenario.</summary>
-        public int ExpiringCustomerActionTtlSeconds { get; set; } = 300;
+        public int[] PgwCurrencyIds { get; set; } = [70];
 
-        /// <summary>Authorization validity used by the <c>PaymentExpired</c> scenario for authorization tenders.</summary>
-        public int ExpiringAuthorizationValiditySeconds { get; set; } = 300;
+        public int[] BnplCurrencyIds { get; set; } = [70];
 
-        public MockTenderProfileOptions Bnpl { get; set; } = new()
-        {
-            SupportsIssuanceGuaranteeOnAuthorization = true,
-            AuthorizationValiditySeconds = 86_400
-        };
-
-        public MockTenderProfileOptions AgencyCredit { get; set; } = new()
-        {
-            SupportsIssuanceGuaranteeOnAuthorization = true,
-            AuthorizationValiditySeconds = null
-        };
-    }
-
-    public sealed class MockTenderProfileOptions
-    {
-        public bool SupportsIssuanceGuaranteeOnAuthorization { get; set; }
-
-        /// <summary>Null means the authorization has no known time-limited expiry.</summary>
-        public int? AuthorizationValiditySeconds { get; set; }
+        public int BnplGuaranteeValiditySeconds { get; set; } = 86_400;
     }
 }

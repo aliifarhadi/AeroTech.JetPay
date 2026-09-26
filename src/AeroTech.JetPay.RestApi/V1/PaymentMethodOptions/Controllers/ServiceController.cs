@@ -1,4 +1,4 @@
-using AeroTech.JetPay.RestApi.V1.PaymentMethodOptions.Requests;
+using AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymentMethodOptions;
 using Asp.Versioning;
 using MediatR;
 using Microsoft.AspNetCore.Http;
@@ -17,7 +17,7 @@ namespace AeroTech.JetPay.RestApi.V1.PaymentMethodOptions
         public ServiceController(IMediator mediator) => _mediator = mediator;
 
         [HttpPost("Resolve")]
-        public async Task<IActionResult> Resolve([FromBody] ResolvePaymentMethodOptionsRequest request, CancellationToken cancellationToken)
-            => Ok(await _mediator.Send(request.ToQuery(), cancellationToken));
+        public async Task<IActionResult> Resolve([FromBody] ResolvePaymentMethodOptionsQuery request, CancellationToken cancellationToken)
+            => Ok(await _mediator.Send(request, cancellationToken));
     }
 }

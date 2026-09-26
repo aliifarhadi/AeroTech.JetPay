@@ -8,7 +8,6 @@ using Microsoft.Extensions.Configuration;
 
 namespace AeroTech.JetPay.Application.AcceptanceTests.Fixtures;
 
-/// <summary>A throw-away database built from the real migrations on the development SQL Server.</summary>
 public sealed class TestDatabase(IClock clock) : IAsyncDisposable
 {
     private readonly string _connectionString = new SqlConnectionStringBuilder(DevelopmentConnectionString())

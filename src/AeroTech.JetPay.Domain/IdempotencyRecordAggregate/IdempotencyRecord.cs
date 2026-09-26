@@ -2,13 +2,11 @@ using AeroTech.Framework.Core.Domain.Aggregates;
 
 namespace AeroTech.JetPay.Domain.IdempotencyRecordAggregate
 {
-    /// <summary>
-    /// Durable evidence that one idempotent mutation was committed. It is saved in the same unit of work as the
-    /// payment intent change it guards, so a replay can never produce a second financial effect.
-    /// </summary>
     public sealed class IdempotencyRecord : AggregateRoot<long>
     {
         public const string GlobalScope = "*";
+
+        private readonly List<string> _paymentIntentIds = new();
 
         private IdempotencyRecord()
         {
@@ -20,7 +18,8 @@ namespace AeroTech.JetPay.Domain.IdempotencyRecordAggregate
             string scope,
             string idempotencyKey,
             string requestFingerprint,
-            string paymentIntentId,
+            string paymentSessionId,
+            IEnumerable<string> paymentIntentIds,
             DateTimeOffset createdAt)
         {
             Id = id;
@@ -28,7 +27,8 @@ namespace AeroTech.JetPay.Domain.IdempotencyRecordAggregate
             Scope = scope;
             IdempotencyKey = idempotencyKey;
             RequestFingerprint = requestFingerprint;
-            PaymentIntentId = paymentIntentId;
+            PaymentSessionId = paymentSessionId;
+            _paymentIntentIds.AddRange(paymentIntentIds);
             CreatedAt = createdAt;
         }
 
@@ -40,7 +40,9 @@ namespace AeroTech.JetPay.Domain.IdempotencyRecordAggregate
 
         public string RequestFingerprint { get; private set; } = default!;
 
-        public string PaymentIntentId { get; private set; } = default!;
+        public string PaymentSessionId { get; private set; } = default!;
+
+        public IReadOnlyCollection<string> PaymentIntentIds => _paymentIntentIds.AsReadOnly();
 
         public DateTimeOffset CreatedAt { get; private set; }
 
@@ -50,9 +52,10 @@ namespace AeroTech.JetPay.Domain.IdempotencyRecordAggregate
             string scope,
             string idempotencyKey,
             string requestFingerprint,
-            string paymentIntentId,
+            string paymentSessionId,
+            IEnumerable<string> paymentIntentIds,
             DateTimeOffset createdAt)
-            => new(id, operation, scope, idempotencyKey, requestFingerprint, paymentIntentId, createdAt);
+            => new(id, operation, scope, idempotencyKey, requestFingerprint, paymentSessionId, paymentIntentIds, createdAt);
 
         public bool Matches(string requestFingerprint) => RequestFingerprint == requestFingerprint;
     }

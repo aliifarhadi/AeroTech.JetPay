@@ -24,11 +24,11 @@ namespace AeroTech.JetPay.Persistence.PaymentIntentAggregate
             builder.HasKey(intent => intent.Id);
             builder.Property(intent => intent.Id).HasMaxLength(64).ValueGeneratedNever();
 
-            builder.Property(intent => intent.PayableInstructionId).HasMaxLength(100).IsRequired();
-            builder.Property(intent => intent.OrderReference).HasMaxLength(64).IsRequired();
-            builder.Property(intent => intent.SelectedPaymentMethodOptionId).HasMaxLength(64);
+            builder.Property(intent => intent.PaymentSessionId).HasMaxLength(64).IsRequired();
+            builder.Property(intent => intent.PaymentMethodOptionId).HasMaxLength(64).IsRequired();
             builder.Property(intent => intent.FailureCode).HasMaxLength(64);
             builder.Property(intent => intent.FailureReason).HasMaxLength(512);
+            builder.Property(intent => intent.ProviderReference).HasMaxLength(256);
 
             builder.OwnsOne(intent => intent.NextAction, action =>
             {
@@ -44,12 +44,11 @@ namespace AeroTech.JetPay.Persistence.PaymentIntentAggregate
                     .HasConversion(FormFieldsConverter, FormFieldsComparer);
             });
 
-            builder.Ignore(intent => intent.IsActive);
-            builder.Ignore(intent => intent.CapturableAmount);
+            builder.Ignore(intent => intent.HoldsFunding);
+            builder.Ignore(intent => intent.IsDispatchPending);
             builder.Ignore(intent => intent.RequiresProviderRelease);
 
-            builder.HasIndex(intent => intent.PayableInstructionId);
-            builder.HasIndex(intent => new { intent.OrderId, intent.CommercialVersion });
+            builder.HasIndex(intent => new { intent.PaymentSessionId, intent.Sequence }).IsUnique();
             builder.HasIndex(intent => intent.Status);
         }
     }

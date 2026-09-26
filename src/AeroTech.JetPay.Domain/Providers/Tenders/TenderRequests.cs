@@ -1,37 +1,34 @@
 using AeroTech.Messages.JetPay.Enums;
+using AeroTech.Messages.Shared.Enums;
 
 namespace AeroTech.JetPay.Domain.Providers.Tenders
 {
     public sealed record TenderStartRequest(
         string PaymentIntentId,
+        string PaymentSessionId,
         long OrderId,
         PayerType PayerType,
         long PayerId,
         decimal Amount,
         int CurrencyId,
-        RequiredGuarantee RequiredGuarantee,
-        PaymentCaptureMode CaptureMode,
-        DateTimeOffset? IntentExpiresAt,
+        string? FundingReference,
+        SalesChannel SalesChannel,
+        long? OfficeId,
         string? ReturnUrl,
+        DateTimeOffset? SessionExpiresAt,
         string IdempotencyKey);
 
     public sealed record TenderVerifyRequest(
         string PaymentIntentId,
+        string PaymentSessionId,
         long OrderId,
         decimal Amount,
         int CurrencyId,
-        RequiredGuarantee RequiredGuarantee,
-        string IdempotencyKey);
-
-    public sealed record TenderCaptureRequest(
-        string PaymentIntentId,
-        decimal Amount,
-        int CurrencyId,
-        bool FinalCapture,
+        string? ProviderReference,
         string IdempotencyKey);
 
     public sealed record TenderReleaseRequest(
         string PaymentIntentId,
-        PaymentCancellationReason Reason,
+        string? ProviderReference,
         string IdempotencyKey);
 }
