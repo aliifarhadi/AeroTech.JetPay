@@ -3,16 +3,17 @@ using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.JetPay.Application.AcceptanceTests.Fakes;
 using AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymentMethodOptions;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.AddPaymentSelections;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CancelPaymentSession;
-using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ConfirmPaymentSession;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CreatePaymentSession;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ExpireDuePayments;
-using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.VerifyPaymentIntent;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ProcessProviderCallback;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ReconcilePaymentIntent;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Queries.GetPaymentSessionById;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Views;
 using AeroTech.JetPay.Domain.IdempotencyRecordAggregate.Contracts;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate.Contracts;
 using AeroTech.JetPay.Domain.PaymentSessionAggregate.Contracts;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate.Entities;
 using AeroTech.JetPay.Domain.Providers.Tenders;
 using AeroTech.JetPay.Mock;
 using AeroTech.JetPay.Mock.Funding;
@@ -33,25 +34,28 @@ public sealed class PaymentHarness : IDisposable
     public const int Usd = 840;
     public const long CustomerId = 7001;
     public const long AgencyId = 8001;
-    public const long CorporateId = 9001;
-    public const long CashOfficeId = 501;
+    public const long IssuerId = 11;
     public const long EmployeeId = 42;
+    public const long OfficeId = 501;
     public const decimal Amount = 1_000_000m;
+    public static readonly TimeSpan VerifyWindow = TimeSpan.FromMinutes(10);
+    public static readonly TimeSpan CustomerActionTtl = TimeSpan.FromMinutes(15);
 
     private readonly ServiceProvider _provider;
     private readonly IServiceScope _scope;
     private readonly HashSet<TenderType> _crashBeforeDispatch = [];
     private int _keys;
 
-    public PaymentHarness(bool allowPgwForStaffAssisted = false)
+    public PaymentHarness()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["PaymentSessions:LockExpirySeconds"] = "30",
-                ["PaymentAcceptancePolicy:AllowPgwForStaffAssisted"] = allowPgwForStaffAssisted.ToString(),
                 ["MockJetPay:Enabled"] = "true",
-                ["MockJetPay:PublicBaseUrl"] = "http://mock.jetpay.test"
+                ["MockJetPay:PublicBaseUrl"] = "http://mock.jetpay.test",
+                ["MockJetPay:CustomerActionTtlSeconds"] = CustomerActionTtl.TotalSeconds.ToString(),
+                ["MockJetPay:VerifyWindowSeconds"] = VerifyWindow.TotalSeconds.ToString()
             })
             .Build();
 
@@ -69,8 +73,6 @@ public sealed class PaymentHarness : IDisposable
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<InMemoryUnitOfWork>());
         services.AddScoped<InMemoryPaymentSessionRepository>();
         services.AddScoped<IPaymentSessionRepository>(provider => provider.GetRequiredService<InMemoryPaymentSessionRepository>());
-        services.AddScoped<InMemoryPaymentIntentRepository>();
-        services.AddScoped<IPaymentIntentRepository>(provider => provider.GetRequiredService<InMemoryPaymentIntentRepository>());
         services.AddScoped<InMemoryIdempotencyRecordRepository>();
         services.AddScoped<IIdempotencyRecordRepository>(provider => provider.GetRequiredService<InMemoryIdempotencyRecordRepository>());
 
@@ -90,21 +92,17 @@ public sealed class PaymentHarness : IDisposable
 
     public InMemoryPaymentSessionRepository Sessions => _scope.ServiceProvider.GetRequiredService<InMemoryPaymentSessionRepository>();
 
-    public InMemoryPaymentIntentRepository Intents => _scope.ServiceProvider.GetRequiredService<InMemoryPaymentIntentRepository>();
+    public static PaymentInitiatorContextView Web => new("Customer", CustomerId, SalesChannel.IBE, null);
 
-    public static PaymentInitiatorContextView Web => new(SalesChannel.IBE, "Customer", CustomerId, null);
+    public static PaymentInitiatorContextView AgencyApi => new("AgencyApiPrincipal", 88, SalesChannel.PartnerAPI, null);
 
-    public static PaymentInitiatorContextView AgencyApi => new(SalesChannel.PartnerAPI, "AgencyApiPrincipal", 88, null);
-
-    public static PaymentInitiatorContextView BackOffice(long officeId = CashOfficeId) => new(SalesChannel.BackOffice, "AirlineEmployee", EmployeeId, officeId);
+    public static PaymentInitiatorContextView BackOffice => new("AirlineEmployee", EmployeeId, SalesChannel.BackOffice, OfficeId);
 
     public MockWallet Wallet(PayerType payerType, long payerId, decimal balance, bool isDefault = false, int currencyId = Irr, string code = "main")
         => Ledger.SetWallet(payerType, payerId, currencyId, code, balance, isDefault);
 
-    public MockCreditFacility Credit(TenderType tenderType, PayerType payerType, long payerId, decimal limit, int? validitySeconds = null, int currencyId = Irr)
-        => Ledger.SetCreditFacility(tenderType, payerType, payerId, currencyId, limit, validitySeconds);
-
-    public void AcceptCashAt(long officeId = CashOfficeId) => Ledger.SetCashAcceptance([officeId], []);
+    public void ConfigureProfile(string providerProfileId, Action<MockProviderProfileSettings> configure)
+        => Ledger.ConfigureProfile(providerProfileId, configure);
 
     public void CrashBeforeNextDispatchOf(TenderType tenderType) => _crashBeforeDispatch.Add(tenderType);
 
@@ -117,63 +115,54 @@ public sealed class PaymentHarness : IDisposable
         PayerType payerType = PayerType.Customer,
         long payerId = CustomerId,
         PaymentInteractionMode interactionMode = PaymentInteractionMode.CustomerInteractive,
-        PaymentAssuranceRequirement assurance = PaymentAssuranceRequirement.IssuanceGuaranteed,
-        PaymentInitiatorContextView? initiator = null,
+        PaymentSelectionMode? selectionMode = null,
         decimal amount = Amount,
         int currencyId = Irr,
         long orderId = 5001,
         int commercialVersion = 1,
         DateTimeOffset? expiresAt = null,
-        string? payableInstructionId = null)
+        IReadOnlyList<PaymentSelection>? selections = null,
+        long issuerLegalEntityId = IssuerId,
+        PaymentAssuranceRequirement assurance = PaymentAssuranceRequirement.IssuanceGuaranteed)
         => new(
             idempotencyKey,
-            payableInstructionId ?? $"payable-{orderId}-v{commercialVersion}",
+            $"payable-{orderId}-v{commercialVersion}",
             orderId,
             $"ORD-{orderId}",
             commercialVersion,
             PaymentPurpose.InitialSale,
+            issuerLegalEntityId,
             payerType,
             payerId,
-            initiator ?? DefaultInitiator(interactionMode),
+            DefaultInitiator(interactionMode),
+            interactionMode,
+            selectionMode ?? DefaultSelection(interactionMode),
             amount,
             currencyId,
             assurance,
-            interactionMode,
-            expiresAt);
+            expiresAt,
+            selections ?? []);
 
-    public Task<PaymentSessionResponse> CreateAsync(
+    public Task<PaymentSessionView> CreateAsync(
         PayerType payerType = PayerType.Customer,
         long payerId = CustomerId,
         PaymentInteractionMode interactionMode = PaymentInteractionMode.CustomerInteractive,
-        PaymentAssuranceRequirement assurance = PaymentAssuranceRequirement.IssuanceGuaranteed,
-        PaymentInitiatorContextView? initiator = null,
+        PaymentSelectionMode? selectionMode = null,
         decimal amount = Amount,
         int currencyId = Irr,
         long orderId = 5001,
         int commercialVersion = 1,
-        DateTimeOffset? expiresAt = null)
-        => SendAsync(CreateCommand(NewKey(), payerType, payerId, interactionMode, assurance, initiator, amount, currencyId, orderId, commercialVersion, expiresAt));
+        DateTimeOffset? expiresAt = null,
+        IReadOnlyList<PaymentSelection>? selections = null)
+        => SendAsync(CreateCommand(NewKey(), payerType, payerId, interactionMode, selectionMode, amount, currencyId, orderId, commercialVersion, expiresAt, selections));
 
-    public Task<IReadOnlyList<PaymentMethodOptionView>> OptionsFor(PaymentSessionView session, decimal? amount = null)
-        => SendAsync(new ResolvePaymentMethodOptionsQuery(
-            session.OrderId,
-            session.OrderReference,
-            session.CommercialVersion,
-            session.Purpose,
-            session.PayerType,
-            session.PayerId,
-            session.InitiatorContext,
-            amount ?? session.RequiredAmount,
-            session.CurrencyId,
-            session.AssuranceRequirement,
-            session.InteractionMode));
+    public Task<PaymentSessionView> CreateAgencyDefaultAsync(decimal amount = Amount, int currencyId = Irr)
+        => CreateAsync(PayerType.Agency, AgencyId, PaymentInteractionMode.UnattendedApi, PaymentSelectionMode.Default, amount, currencyId);
 
     public Task<IReadOnlyList<PaymentMethodOptionView>> ResolveAsync(
-        PayerType payerType,
-        long payerId,
-        PaymentInteractionMode interactionMode,
-        PaymentAssuranceRequirement assurance = PaymentAssuranceRequirement.IssuanceGuaranteed,
-        PaymentInitiatorContextView? initiator = null,
+        PayerType payerType = PayerType.Customer,
+        long payerId = CustomerId,
+        PaymentInteractionMode interactionMode = PaymentInteractionMode.CustomerInteractive,
         decimal amount = Amount,
         int currencyId = Irr)
         => SendAsync(new ResolvePaymentMethodOptionsQuery(
@@ -181,53 +170,82 @@ public sealed class PaymentHarness : IDisposable
             "ORD-5001",
             1,
             PaymentPurpose.InitialSale,
+            IssuerId,
             payerType,
             payerId,
-            initiator ?? DefaultInitiator(interactionMode),
+            DefaultInitiator(interactionMode),
+            interactionMode,
             amount,
             currencyId,
-            assurance,
-            interactionMode));
+            PaymentAssuranceRequirement.IssuanceGuaranteed));
+
+    public Task<IReadOnlyList<PaymentMethodOptionView>> OptionsFor(PaymentSessionView session)
+        => SendAsync(new ResolvePaymentMethodOptionsQuery(
+            session.OrderId,
+            session.OrderReference,
+            session.CommercialVersion,
+            session.Purpose,
+            session.IssuerLegalEntityId,
+            session.PayerType,
+            session.PayerId,
+            session.Initiator,
+            session.InteractionMode,
+            session.OutstandingAmount,
+            session.CurrencyId,
+            session.AssuranceRequirement));
 
     public static string OptionOf(IReadOnlyList<PaymentMethodOptionView> options, TenderType tenderType)
         => options.Single(option => option.TenderType == tenderType).Id;
 
-    public Task<PaymentSessionResponse> ConfirmAsync(string sessionId, IReadOnlyList<PaymentSelection> selections, string? idempotencyKey = null, string? returnUrl = null)
-        => SendAsync(new ConfirmPaymentSessionCommand(idempotencyKey ?? NewKey(), sessionId, PaymentSelectionMode.Explicit, selections, returnUrl));
+    public Task<PaymentSessionView> SelectAsync(string sessionId, IReadOnlyList<PaymentSelection> selections, string? idempotencyKey = null, string? returnUrl = null)
+        => SendAsync(new AddPaymentSelectionsCommand(idempotencyKey ?? NewKey(), sessionId, selections, returnUrl));
 
-    public async Task<PaymentSessionResponse> FundAsync(PaymentSessionView session, string? idempotencyKey, params (TenderType Tender, decimal Amount)[] legs)
+    public async Task<PaymentSessionView> SelectAsync(PaymentSessionView session, TenderType tenderType, string? idempotencyKey = null)
     {
-        var options = await OptionsFor(session, legs.Sum(leg => leg.Amount));
-        return await ConfirmAsync(session.Id, legs.Select(leg => new PaymentSelection(OptionOf(options, leg.Tender), leg.Amount)).ToList(), idempotencyKey);
+        var options = await OptionsFor(session);
+        return await SelectAsync(session.Id, [new PaymentSelection(OptionOf(options, tenderType), session.OutstandingAmount)], idempotencyKey);
     }
 
-    public Task<PaymentSessionResponse> ConfirmDefaultAsync(string sessionId, string? idempotencyKey = null)
-        => SendAsync(new ConfirmPaymentSessionCommand(idempotencyKey ?? NewKey(), sessionId, PaymentSelectionMode.Default, [], null));
-
-    public Task<PaymentSessionResponse> CompleteAsync(string paymentIntentId, MockCustomerOutcome outcome = MockCustomerOutcome.Approved)
+    public async Task<(PaymentSessionView Session, PaymentIntentView Intent)> StartPgwAsync(DateTimeOffset? expiresAt = null)
     {
-        Ledger.SetCustomerOutcome(paymentIntentId, outcome);
-        return SendAsync(new VerifyPaymentIntentCommand(paymentIntentId));
+        var session = await CreateAsync(expiresAt: expiresAt);
+        var selected = await SelectAsync(session, TenderType.IranianPgw);
+        return (selected, selected.Intents.Single());
     }
 
-    public Task<PaymentSessionResponse> ReconcileAsync(string paymentIntentId) => SendAsync(new VerifyPaymentIntentCommand(paymentIntentId));
+    public void PayAtGateway(string paymentIntentId, MockCustomerOutcome outcome = MockCustomerOutcome.Paid)
+        => Ledger.PayLatest(paymentIntentId, outcome, Clock.Now);
 
-    public Task<PaymentSessionResponse> CancelAsync(string sessionId, string? idempotencyKey = null)
+    public Task<PaymentSessionView> CallbackAsync(string paymentIntentId)
+        => SendAsync(new ProcessProviderCallbackCommand(paymentIntentId, Ledger.OperationsOf(paymentIntentId).LastOrDefault()?.PaidAt));
+
+    public Task<PaymentSessionView> CompleteAsync(string paymentIntentId, MockCustomerOutcome outcome = MockCustomerOutcome.Paid)
+    {
+        PayAtGateway(paymentIntentId, outcome);
+        return CallbackAsync(paymentIntentId);
+    }
+
+    public Task<PaymentSessionView> ReconcileAsync(string paymentIntentId) => SendAsync(new ReconcilePaymentIntentCommand(paymentIntentId));
+
+    public Task<PaymentSessionView> CancelAsync(string sessionId, string? idempotencyKey = null)
         => SendAsync(new CancelPaymentSessionCommand(idempotencyKey ?? NewKey(), sessionId));
 
-    public Task<PaymentSessionResponse> GetAsync(string sessionId) => SendAsync(new GetPaymentSessionByIdQuery(sessionId));
+    public Task<PaymentSessionView> GetAsync(string sessionId) => SendAsync(new GetPaymentSessionByIdQuery(sessionId));
 
-    public Task<int> ExpireDueAsync() => SendAsync(new ExpireDuePaymentsCommand(100));
+    public Task<int> SweepAsync() => SendAsync(new ExpireDuePaymentsCommand(100));
+
+    public IReadOnlyList<ProviderPaymentAttempt> AttemptsOf(string paymentIntentId)
+        => Sessions.Committed
+            .SelectMany(session => session.Intents)
+            .Single(intent => intent.Id == paymentIntentId)
+            .ProviderAttempts
+            .OrderBy(attempt => attempt.AttemptNumber)
+            .ToList();
 
     public IReadOnlyList<PaymentSessionChanged> ChangesOf(string sessionId)
         => Outbox.Written.OfType<PaymentSessionChanged>().Where(change => change.PaymentSessionId == sessionId).ToList();
 
     public IReadOnlyList<PaymentPaidUnapplied> PaidUnapplied() => Outbox.Written.OfType<PaymentPaidUnapplied>().ToList();
-
-    public IReadOnlyList<MockOperation> OperationsOf(MockOperationKind kind) => Ledger.Operations.Where(operation => operation.Kind == kind).ToList();
-
-    public static PaymentIntentView Leg(PaymentSessionResponse response, TenderType tenderType)
-        => response.PaymentIntents.Last(intent => intent.TenderType == tenderType);
 
     public static async Task<BusinessException> AssertRejectedAsync(int code, Func<Task> action)
     {
@@ -245,8 +263,15 @@ public sealed class PaymentHarness : IDisposable
     private static PaymentInitiatorContextView DefaultInitiator(PaymentInteractionMode interactionMode) => interactionMode switch
     {
         PaymentInteractionMode.UnattendedApi => AgencyApi,
-        PaymentInteractionMode.StaffAssisted => BackOffice(),
+        PaymentInteractionMode.StaffAssisted => BackOffice,
         _ => Web
+    };
+
+    private static PaymentSelectionMode DefaultSelection(PaymentInteractionMode interactionMode) => interactionMode switch
+    {
+        PaymentInteractionMode.UnattendedApi => PaymentSelectionMode.Default,
+        PaymentInteractionMode.StaffAssisted => PaymentSelectionMode.Explicit,
+        _ => PaymentSelectionMode.Interactive
     };
 
     private void WrapTenderProvidersForCrashes(IServiceCollection services)

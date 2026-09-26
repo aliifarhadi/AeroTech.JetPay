@@ -39,7 +39,7 @@ namespace AeroTech.JetPay.Mock.Faults
             context.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
             await context.Response.WriteAsJsonAsync(new ApiResult
             {
-                Errors = [new ApiErrorItem { Title = "Simulated transport timeout. Read the payment intent back to learn its state." }]
+                Errors = [new ApiErrorItem { Title = "Simulated transport timeout. Read the payment session back to learn its state." }]
             });
         }
 

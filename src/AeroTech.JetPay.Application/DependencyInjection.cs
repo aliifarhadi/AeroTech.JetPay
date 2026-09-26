@@ -31,13 +31,13 @@ namespace AeroTech.JetPay.Application
                 $"{PaymentSessionOptions.SectionName}:{nameof(PaymentSessionOptions.LockExpirySeconds)}");
 
             services.Configure<PaymentSessionOptions>(paymentSessions);
-            services.Configure<PaymentAcceptancePolicyOptions>(configuration.GetSection(PaymentAcceptancePolicyOptions.SectionName));
 
             services.AddScoped<IIdempotencyGuard, IdempotencyGuard>();
             services.AddScoped<IPaymentSessionLock, PaymentSessionLock>();
             services.AddScoped<ITenderProviderResolver, TenderProviderResolver>();
-            services.AddScoped<IPaymentSessionFunding, PaymentSessionFunding>();
             services.AddScoped<IPaymentMethodOptionResolver, PaymentMethodOptionResolver>();
+            services.AddScoped<IPaymentSelectionPlanner, PaymentSelectionPlanner>();
+            services.AddScoped<IPaymentIntentExecution, PaymentIntentExecution>();
 
             return services;
         }

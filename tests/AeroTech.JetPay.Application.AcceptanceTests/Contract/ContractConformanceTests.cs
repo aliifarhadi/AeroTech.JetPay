@@ -1,8 +1,9 @@
 using System.Reflection;
 using AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymentMethodOptions;
-using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ConfirmPaymentSession;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.AddPaymentSelections;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CreatePaymentSession;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Views;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate;
 using AeroTech.Messages;
 using AeroTech.Messages.JetPay.Enums;
 using AeroTech.Messages.JetPay.IntegrationEvents.V1;
@@ -14,7 +15,7 @@ namespace AeroTech.JetPay.Application.AcceptanceTests.Contract;
 public sealed class ContractConformanceTests
 {
     [Fact]
-    public void PaymentSession_exposes_the_master_fields_plus_failure_code_and_outstanding_amount()
+    public void PaymentSession_exposes_the_master_fields_plus_failure_code()
         => AssertShape(typeof(PaymentSessionView), BindingFlags.Public | BindingFlags.Instance,
         [
             ("Id", typeof(string)),
@@ -23,49 +24,47 @@ public sealed class ContractConformanceTests
             ("OrderReference", typeof(string)),
             ("CommercialVersion", typeof(int)),
             ("Purpose", typeof(PaymentPurpose)),
+            ("IssuerLegalEntityId", typeof(long)),
             ("PayerType", typeof(PayerType)),
             ("PayerId", typeof(long)),
-            ("InitiatorContext", typeof(PaymentInitiatorContextView)),
+            ("Initiator", typeof(PaymentInitiatorContextView)),
+            ("InteractionMode", typeof(PaymentInteractionMode)),
+            ("SelectionMode", typeof(PaymentSelectionMode)),
             ("RequiredAmount", typeof(decimal)),
             ("CurrencyId", typeof(int)),
             ("AssuranceRequirement", typeof(PaymentAssuranceRequirement)),
-            ("InteractionMode", typeof(PaymentInteractionMode)),
             ("Status", typeof(PaymentSessionStatus)),
             ("GuaranteedAmount", typeof(decimal)),
             ("CapturedAmount", typeof(decimal)),
-            ("RefundedAmount", typeof(decimal)),
             ("OutstandingAmount", typeof(decimal)),
-            ("EarliestGuaranteeExpiry", typeof(DateTimeOffset?)),
             ("ExpiresAt", typeof(DateTimeOffset?)),
             ("FailureCode", typeof(string)),
             ("Version", typeof(long)),
             ("CreatedAt", typeof(DateTimeOffset)),
             ("UpdatedAt", typeof(DateTimeOffset)),
-            ("PaymentIntentIds", typeof(IReadOnlyList<string>))
+            ("Intents", typeof(IReadOnlyList<PaymentIntentView>))
         ]);
 
     [Fact]
     public void PaymentInitiatorContext_matches_the_master_contract()
         => AssertShape(typeof(PaymentInitiatorContextView), BindingFlags.Public | BindingFlags.Instance,
         [
-            ("SalesChannel", typeof(SalesChannel)),
             ("ActorType", typeof(string)),
             ("ActorId", typeof(long)),
+            ("SalesChannel", typeof(SalesChannel)),
             ("OfficeId", typeof(long?))
         ]);
 
     [Fact]
-    public void PaymentIntent_exposes_the_master_fields_without_internal_provider_evidence()
+    public void PaymentIntent_exposes_the_master_fields_and_keeps_provider_attempts_internal()
         => AssertShape(typeof(PaymentIntentView), BindingFlags.Public | BindingFlags.Instance,
         [
             ("Id", typeof(string)),
             ("PaymentSessionId", typeof(string)),
-            ("Sequence", typeof(int)),
             ("PaymentMethodOptionId", typeof(string)),
             ("TenderType", typeof(TenderType)),
             ("RequestedAmount", typeof(decimal)),
             ("CurrencyId", typeof(int)),
-            ("CaptureMode", typeof(PaymentCaptureMode)),
             ("Status", typeof(PaymentIntentStatus)),
             ("AuthorizedAmount", typeof(decimal)),
             ("GuaranteedAmount", typeof(decimal)),
@@ -95,10 +94,27 @@ public sealed class ContractConformanceTests
             ("IsDefault", typeof(bool)),
             ("CanAutoSelect", typeof(bool)),
             ("CustomerActionType", typeof(CustomerActionType)),
-            ("AssuranceCapability", typeof(PaymentAssuranceCapability)),
-            ("CaptureMode", typeof(PaymentCaptureMode)),
+            ("SupportedAssuranceRequirements", typeof(IReadOnlyList<PaymentAssuranceRequirement>)),
             ("ExpiresAt", typeof(DateTimeOffset?))
         ]);
+
+    [Fact]
+    public void Resolve_and_create_requests_carry_the_master_fields()
+    {
+        Assert.Equal(
+            ["OrderId", "OrderReference", "CommercialVersion", "Purpose", "IssuerLegalEntityId", "PayerType", "PayerId", "Initiator", "InteractionMode", "Amount", "CurrencyId", "AssuranceRequirement"],
+            typeof(ResolvePaymentMethodOptionsQuery).GetProperties().Select(property => property.Name));
+
+        Assert.Equal(
+            ["IdempotencyKey", "PayableInstructionId", "OrderId", "OrderReference", "CommercialVersion", "Purpose", "IssuerLegalEntityId", "PayerType", "PayerId", "Initiator", "InteractionMode", "SelectionMode", "RequiredAmount", "CurrencyId", "AssuranceRequirement", "ExpiresAt", "Selections"],
+            typeof(CreatePaymentSessionCommand).GetProperties().Select(property => property.Name));
+
+        Assert.Equal(
+            ["IdempotencyKey", "PaymentSessionId", "Selections", "ReturnUrl"],
+            typeof(AddPaymentSelectionsCommand).GetProperties().Select(property => property.Name));
+
+        Assert.Equal(["PaymentMethodOptionId", "Amount"], typeof(PaymentSelection).GetProperties().Select(property => property.Name));
+    }
 
     [Fact]
     public void PaymentSessionChanged_carries_exactly_the_master_fields_in_the_v1_namespace()
@@ -114,12 +130,12 @@ public sealed class ContractConformanceTests
             ("CommercialVersion", typeof(int)),
             ("Purpose", typeof(PaymentPurpose)),
             ("Status", typeof(PaymentSessionStatus)),
+            ("AssuranceRequirement", typeof(PaymentAssuranceRequirement)),
             ("RequiredAmount", typeof(decimal)),
             ("GuaranteedAmount", typeof(decimal)),
             ("CapturedAmount", typeof(decimal)),
-            ("RefundedAmount", typeof(decimal)),
+            ("OutstandingAmount", typeof(decimal)),
             ("CurrencyId", typeof(int)),
-            ("EarliestGuaranteeExpiry", typeof(DateTimeOffset?)),
             ("ExpiresAt", typeof(DateTimeOffset?)),
             ("Version", typeof(long)),
             ("FailureCode", typeof(string)),
@@ -128,7 +144,7 @@ public sealed class ContractConformanceTests
     }
 
     [Fact]
-    public void PaymentPaidUnapplied_is_published_in_the_v1_namespace()
+    public void PaymentPaidUnapplied_carries_exactly_the_master_fields_in_the_v1_namespace()
     {
         Assert.Equal("AeroTech.Messages.JetPay.IntegrationEvents.V1", typeof(PaymentPaidUnapplied).Namespace);
         Assert.True(typeof(PaymentPaidUnapplied).IsSubclassOf(typeof(BaseIntegrationEvent)));
@@ -151,32 +167,34 @@ public sealed class ContractConformanceTests
     {
         Assert.Equal(["Customer", "Agency", "Corporate", "Partner"], Enum.GetNames<PayerType>());
         Assert.Equal(["CustomerInteractive", "UnattendedApi", "StaffAssisted"], Enum.GetNames<PaymentInteractionMode>());
-        Assert.Equal(["Explicit", "Default"], Enum.GetNames<PaymentSelectionMode>());
+        Assert.Equal(["Interactive", "Default", "Explicit"], Enum.GetNames<PaymentSelectionMode>());
         Assert.Equal(["FundsReceived", "IssuanceGuaranteed"], Enum.GetNames<PaymentAssuranceRequirement>());
-        Assert.Equal(["FundsReceived", "CommitmentToPay"], Enum.GetNames<PaymentAssuranceCapability>());
         Assert.Equal(
-            ["Created", "RequiresPaymentMethod", "RequiresCustomerAction", "Processing", "PartiallyCovered", "Guaranteed", "Paid", "Cancelled", "Expired"],
+            ["Created", "RequiresPaymentMethod", "Processing", "PartiallyFunded", "Guaranteed", "Paid", "Failed", "Cancelled", "Expired"],
             Enum.GetNames<PaymentSessionStatus>());
         Assert.Equal(
             ["Created", "RequiresCustomerAction", "Processing", "Authorized", "PartiallyCaptured", "Captured", "Failed", "Cancelled", "Expired"],
             Enum.GetNames<PaymentIntentStatus>());
         Assert.Equal(
-            ["IranianPgw", "ExternalCard", "AccountToAccount", "Bnpl", "StoredValue", "AgencyDeposit", "CustomerCredit", "AgencyCredit", "CorporateCredit", "Cash", "BankTransferReference", "Voucher", "LoyaltyPoints"],
+            ["Created", "CustomerActionPending", "CallbackReceived", "VerificationPending", "Verified", "Settled", "AutoReversalPending", "Reversed", "Failed", "Unknown"],
+            Enum.GetNames<ProviderPaymentAttemptStatus>());
+        Assert.Equal(
+            ["IranianPgw", "ExternalCard", "Bnpl", "StoredValue", "AgencyDeposit", "CustomerCredit", "AgencyCredit", "CorporateCredit", "BankTransferReference", "Cash", "PosTerminal"],
             Enum.GetNames<TenderType>());
         Assert.Equal(["InitialSale", "AddService", "ExchangeAdditionalCollection", "GroupDeposit", "FinalPayment", "Other"], Enum.GetNames<PaymentPurpose>());
         Assert.Equal(["None", "Redirect", "HtmlForm", "Sdk", "ThreeDsChallenge"], Enum.GetNames<CustomerActionType>());
-        Assert.Equal(["Automatic", "Manual"], Enum.GetNames<PaymentCaptureMode>());
     }
 
     [Theory]
     [InlineData(typeof(CreatePaymentSessionCommand))]
-    [InlineData(typeof(ConfirmPaymentSessionCommand))]
+    [InlineData(typeof(AddPaymentSelectionsCommand))]
     [InlineData(typeof(PaymentSelection))]
     [InlineData(typeof(ResolvePaymentMethodOptionsQuery))]
-    public void Ordering_facing_requests_never_carry_capture_mode_guarantee_or_provider(Type request)
+    [InlineData(typeof(PaymentMethodOptionView))]
+    public void Ordering_facing_contracts_never_carry_capture_mode_or_provider_routes(Type contract)
         => Assert.DoesNotContain(
-            request.GetProperties().Select(property => property.Name),
-            name => name is "CaptureMode" or "RequiredGuarantee" or "ProviderCode" or "ProviderReference");
+            contract.GetProperties().Select(property => property.Name),
+            name => name is "CaptureMode" or "AssuranceCapability" or "ProviderProfileId" or "ProviderCode" or "ProviderReference" or "FundingReference");
 
     private static void AssertShape(Type type, BindingFlags flags, IReadOnlyList<(string Name, Type Type)> expected)
     {

@@ -1,5 +1,5 @@
 using AeroTech.Framework.Core.ServiceContracts;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate.ValueObjects;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate.ValueObjects;
 using AeroTech.JetPay.Domain.Providers.Tenders;
 using AeroTech.JetPay.Mock.Configuration;
 using AeroTech.JetPay.Mock.Funding;
@@ -23,78 +23,68 @@ namespace AeroTech.JetPay.Mock.Tenders
 
         public TenderType TenderType => TenderType.IranianPgw;
 
-        public Task<TenderOutcome> StartAsync(TenderStartRequest request, CancellationToken cancellationToken = default)
+        public Task<ProviderResult> StartAsync(ProviderStartRequest request, CancellationToken cancellationToken = default)
         {
-            if (_ledger.FindOperation(request.IdempotencyKey) is { } existing)
-                return Task.FromResult(Replay(existing, request.SessionExpiresAt));
+            var profile = _ledger.Profile(request.ProviderProfileId);
 
-            foreach (var route in _ledger.PgwRoutes(request.CurrencyId))
+            if (profile is null || !profile.Enabled || profile.Mode == MockPgwMode.UnavailableBeforeEffect)
             {
-                if (request.Amount < route.MinimumAmount || request.Amount > route.MaximumAmount)
-                {
-                    _ledger.RecordRouteAttempt(request.PaymentIntentId, route.Code, "AmountOutOfRange");
-                    continue;
-                }
-
-                if (route.Mode == MockPgwMode.UnavailableBeforeEffect)
-                {
-                    _ledger.RecordRouteAttempt(request.PaymentIntentId, route.Code, "UnavailableBeforeEffect");
-                    continue;
-                }
-
-                var transaction = _ledger.OpenPgwTransaction(request.IdempotencyKey, route.Code, request.Amount, _clock.GetDateTime());
-
-                if (route.Mode == MockPgwMode.UnknownAfterEffect)
-                {
-                    _ledger.RecordRouteAttempt(request.PaymentIntentId, route.Code, "UnknownAfterEffect");
-                    return Task.FromResult(TenderOutcome.Processing(transaction.Reference));
-                }
-
-                _ledger.RecordRouteAttempt(request.PaymentIntentId, route.Code, "TokenIssued");
-                return Task.FromResult(TenderOutcome.RequiresCustomerAction(Redirect(transaction, request.SessionExpiresAt), transaction.Reference));
+                _ledger.RecordRouteAttempt(request.PaymentIntentId, request.ProviderProfileId, "UnavailableBeforeEffect");
+                return Task.FromResult(ProviderResult.UnavailableBeforeEffect());
             }
 
-            return Task.FromResult(TenderOutcome.Failed("ProviderUnavailable", "No payment gateway route is available for this payment."));
+            var transaction = _ledger.OpenPgwTransaction(
+                request.IdempotencyKey,
+                request.ProviderProfileId,
+                request.PaymentIntentId,
+                request.Amount,
+                _clock.GetDateTime());
+
+            if (profile.Mode == MockPgwMode.UnknownAfterEffect)
+            {
+                _ledger.RecordRouteAttempt(request.PaymentIntentId, request.ProviderProfileId, "UnknownAfterEffect");
+                return Task.FromResult(ProviderResult.Unknown(transaction.Reference));
+            }
+
+            _ledger.RecordRouteAttempt(request.PaymentIntentId, request.ProviderProfileId, "TokenIssued");
+            return Task.FromResult(ProviderResult.CustomerActionRequired(Redirect(transaction, request.SessionExpiresAt), transaction.Reference));
         }
 
-        public Task<TenderOutcome> VerifyAsync(TenderVerifyRequest request, CancellationToken cancellationToken = default)
+        public Task<ProviderResult> VerifyAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
         {
-            if (_ledger.FindOperation(request.IdempotencyKey) is not { Kind: MockOperationKind.PgwTransaction } transaction || transaction.Released)
-                return Task.FromResult(TenderOutcome.Failed("NoProviderEffect", "The gateway has no payment for this attempt."));
+            var transaction = _ledger.VerifyPgw(request.IdempotencyKey, _clock.GetDateTime());
 
-            var route = _ledger.PgwProfile(transaction.RouteCode!);
-
-            if (route?.Mode == MockPgwMode.UnknownAfterEffect && transaction.CustomerOutcome is null)
-                return Task.FromResult(route.InquiryOutcome == MockInquiryOutcome.Captured
-                    ? Settle(transaction)
-                    : TenderOutcome.Failed("NoProviderEffect", "Inquiry proved the gateway never charged this attempt.", transaction.Reference));
-
-            return Task.FromResult(transaction.CustomerOutcome switch
+            return Task.FromResult(transaction switch
             {
-                MockCustomerOutcome.Approved => Settle(transaction),
-                MockCustomerOutcome.Declined => TenderOutcome.Failed("Declined", "The bank declined the payment during verification.", transaction.Reference),
-                _ => TenderOutcome.RequiresCustomerAction(Redirect(transaction, null), transaction.Reference)
+                null => ProviderResult.NoEffect(),
+                { ReturnedAt: not null } => ProviderResult.Declined("PaymentReturned", "The gateway returned the unverified payment to the payer.", transaction.Reference),
+                { CustomerOutcome: MockCustomerOutcome.Declined } => ProviderResult.Declined("Declined", "The bank declined the payment.", transaction.Reference),
+                { VerifiedAt: not null } => ProviderResult.Succeeded(transaction.Reference, transaction.PaidAt),
+                _ => ProviderResult.NotYetPaid()
             });
         }
 
-        public Task<TenderOutcome> ReleaseAsync(TenderReleaseRequest request, CancellationToken cancellationToken = default)
+        public Task<ProviderResult> SettleAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(_ledger.SettlePgw(request.IdempotencyKey, _clock.GetDateTime()) is { SettledAt: not null } transaction
+                ? ProviderResult.Succeeded(transaction.Reference, transaction.PaidAt)
+                : ProviderResult.Declined("SettlementRejected", "The gateway has no verified payment to settle."));
+
+        public Task<ProviderResult> InquireAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
         {
-            if (_ledger.FindOperation(request.PaymentIntentId)?.CustomerOutcome != MockCustomerOutcome.Approved)
-                _ledger.Release(request.PaymentIntentId);
+            if (_ledger.Profile(request.ProviderProfileId) is not { SupportsInquiry: true })
+                return Task.FromResult(ProviderResult.Unknown(request.ProviderTransactionRef));
 
-            return Task.FromResult(TenderOutcome.Released());
+            var transaction = _ledger.InquirePgw(request.IdempotencyKey, _clock.GetDateTime());
+
+            return Task.FromResult(transaction switch
+            {
+                null => ProviderResult.NoEffect(),
+                { ReturnedAt: not null } => ProviderResult.NoEffect(),
+                { CustomerOutcome: MockCustomerOutcome.Declined } => ProviderResult.Declined("Declined", "The bank declined the payment.", transaction.Reference),
+                { CustomerOutcome: MockCustomerOutcome.Paid } => ProviderResult.Succeeded(transaction.Reference, transaction.PaidAt),
+                _ => ProviderResult.NotYetPaid()
+            });
         }
-
-        private TenderOutcome Settle(MockOperation transaction)
-        {
-            _ledger.MarkSettled(transaction.Key);
-            return TenderOutcome.Captured(transaction.Amount, transaction.Reference);
-        }
-
-        private TenderOutcome Replay(MockOperation transaction, DateTimeOffset? sessionExpiresAt)
-            => _ledger.PgwProfile(transaction.RouteCode!)?.Mode == MockPgwMode.UnknownAfterEffect
-                ? TenderOutcome.Processing(transaction.Reference)
-                : TenderOutcome.RequiresCustomerAction(Redirect(transaction, sessionExpiresAt), transaction.Reference);
 
         private CustomerAction Redirect(MockOperation transaction, DateTimeOffset? sessionExpiresAt)
         {
@@ -104,7 +94,7 @@ namespace AeroTech.JetPay.Mock.Tenders
                 expiresAt = sessionExpiresAt.Value;
 
             return CustomerAction.Redirect(
-                $"{_options.PublicBaseUrl.TrimEnd('/')}/Mock/v1/Pgw/{transaction.RouteCode}/Pay/{Uri.EscapeDataString(transaction.Key)}",
+                $"{_options.PublicBaseUrl.TrimEnd('/')}/Mock/v1/Pgw/{transaction.ProviderProfileId}/Pay/{Uri.EscapeDataString(transaction.PaymentIntentId)}",
                 expiresAt);
         }
     }

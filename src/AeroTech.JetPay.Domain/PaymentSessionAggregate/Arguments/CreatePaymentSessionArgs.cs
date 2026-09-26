@@ -9,12 +9,14 @@ namespace AeroTech.JetPay.Domain.PaymentSessionAggregate.Arguments
         string OrderReference,
         int CommercialVersion,
         PaymentPurpose Purpose,
+        long IssuerLegalEntityId,
         PayerType PayerType,
         long PayerId,
-        PaymentInitiatorContext InitiatorContext,
-        decimal Amount,
+        PaymentInitiatorContext Initiator,
+        PaymentInteractionMode InteractionMode,
+        PaymentSelectionMode SelectionMode,
+        decimal RequiredAmount,
         int CurrencyId,
         PaymentAssuranceRequirement AssuranceRequirement,
-        PaymentInteractionMode InteractionMode,
         DateTimeOffset? ExpiresAt);
 }

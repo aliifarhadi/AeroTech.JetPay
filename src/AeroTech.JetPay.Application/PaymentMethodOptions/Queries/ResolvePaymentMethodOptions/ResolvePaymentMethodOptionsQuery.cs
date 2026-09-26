@@ -12,13 +12,14 @@ namespace AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymen
         string OrderReference,
         int CommercialVersion,
         PaymentPurpose Purpose,
+        long IssuerLegalEntityId,
         PayerType PayerType,
         long PayerId,
-        PaymentInitiatorContextView InitiatorContext,
+        PaymentInitiatorContextView Initiator,
+        PaymentInteractionMode InteractionMode,
         decimal Amount,
         int CurrencyId,
-        PaymentAssuranceRequirement AssuranceRequirement,
-        PaymentInteractionMode InteractionMode) : IRequest<IReadOnlyList<PaymentMethodOptionView>>;
+        PaymentAssuranceRequirement AssuranceRequirement) : IRequest<IReadOnlyList<PaymentMethodOptionView>>;
 
     public sealed record PaymentMethodOptionView(
         string Id,
@@ -32,8 +33,7 @@ namespace AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymen
         bool IsDefault,
         bool CanAutoSelect,
         CustomerActionType CustomerActionType,
-        PaymentAssuranceCapability AssuranceCapability,
-        PaymentCaptureMode CaptureMode,
+        IReadOnlyList<PaymentAssuranceRequirement> SupportedAssuranceRequirements,
         DateTimeOffset? ExpiresAt);
 
     public sealed class ResolvePaymentMethodOptionsQueryValidator : AbstractValidator<ResolvePaymentMethodOptionsQuery>
@@ -44,13 +44,14 @@ namespace AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymen
             RuleFor(query => query.OrderReference).NotEmpty().MaximumLength(64);
             RuleFor(query => query.CommercialVersion).GreaterThan(0);
             RuleFor(query => query.Purpose).IsInEnum();
+            RuleFor(query => query.IssuerLegalEntityId).GreaterThan(0);
             RuleFor(query => query.PayerType).IsInEnum();
             RuleFor(query => query.PayerId).GreaterThan(0);
-            RuleFor(query => query.InitiatorContext).NotNull().SetValidator(new PaymentInitiatorContextValidator());
+            RuleFor(query => query.Initiator).NotNull().SetValidator(new PaymentInitiatorContextValidator());
+            RuleFor(query => query.InteractionMode).IsInEnum();
             RuleFor(query => query.Amount).GreaterThan(0);
             RuleFor(query => query.CurrencyId).GreaterThan(0);
             RuleFor(query => query.AssuranceRequirement).IsInEnum();
-            RuleFor(query => query.InteractionMode).IsInEnum();
         }
     }
 
@@ -67,12 +68,12 @@ namespace AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymen
                 new PaymentEligibilityContext(
                     query.PayerType,
                     query.PayerId,
-                    query.InitiatorContext.ToValueObject(),
+                    query.Initiator.ToValueObject(),
+                    query.InteractionMode,
                     query.Amount,
                     query.CurrencyId,
                     query.Purpose,
-                    query.AssuranceRequirement,
-                    query.InteractionMode),
+                    query.AssuranceRequirement),
                 cancellationToken);
 
             return options
@@ -88,8 +89,7 @@ namespace AeroTech.JetPay.Application.PaymentMethodOptions.Queries.ResolvePaymen
                     option.IsDefault,
                     option.CanAutoSelect,
                     option.CustomerActionType,
-                    option.AssuranceCapability,
-                    option.CaptureMode,
+                    option.SupportedAssuranceRequirements,
                     option.ExpiresAt))
                 .ToList();
         }

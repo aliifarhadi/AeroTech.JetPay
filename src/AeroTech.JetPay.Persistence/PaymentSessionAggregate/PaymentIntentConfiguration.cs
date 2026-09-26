@@ -1,11 +1,11 @@
 using System.Text.Json;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
-namespace AeroTech.JetPay.Persistence.PaymentIntentAggregate
+namespace AeroTech.JetPay.Persistence.PaymentSessionAggregate
 {
     public sealed class PaymentIntentConfiguration : IEntityTypeConfiguration<PaymentIntent>
     {
@@ -26,9 +26,9 @@ namespace AeroTech.JetPay.Persistence.PaymentIntentAggregate
 
             builder.Property(intent => intent.PaymentSessionId).HasMaxLength(64).IsRequired();
             builder.Property(intent => intent.PaymentMethodOptionId).HasMaxLength(64).IsRequired();
+            builder.Property(intent => intent.FundingReference).HasMaxLength(128);
             builder.Property(intent => intent.FailureCode).HasMaxLength(64);
             builder.Property(intent => intent.FailureReason).HasMaxLength(512);
-            builder.Property(intent => intent.ProviderReference).HasMaxLength(256);
 
             builder.OwnsOne(intent => intent.NextAction, action =>
             {
@@ -44,11 +44,21 @@ namespace AeroTech.JetPay.Persistence.PaymentIntentAggregate
                     .HasConversion(FormFieldsConverter, FormFieldsComparer);
             });
 
-            builder.Ignore(intent => intent.HoldsFunding);
-            builder.Ignore(intent => intent.IsDispatchPending);
-            builder.Ignore(intent => intent.RequiresProviderRelease);
+            builder.HasMany(intent => intent.ProviderAttempts)
+                .WithOne()
+                .HasForeignKey(attempt => attempt.PaymentIntentId)
+                .OnDelete(DeleteBehavior.Restrict);
 
-            builder.HasIndex(intent => new { intent.PaymentSessionId, intent.Sequence }).IsUnique();
+            builder.Navigation(intent => intent.ProviderAttempts)
+                .HasField("_providerAttempts")
+                .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+            builder.Ignore(intent => intent.IsOpen);
+            builder.Ignore(intent => intent.HoldsFunding);
+            builder.Ignore(intent => intent.HasUnresolvedProviderEffect);
+            builder.Ignore(intent => intent.CurrentAttempt);
+            builder.Ignore(intent => intent.AwaitsDispatch);
+
             builder.HasIndex(intent => intent.Status);
         }
     }

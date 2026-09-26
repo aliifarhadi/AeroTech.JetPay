@@ -7,14 +7,17 @@ public sealed class CrashingTenderProvider(ITenderProvider inner, Func<bool> sho
 {
     public TenderType TenderType => inner.TenderType;
 
-    public Task<TenderOutcome> StartAsync(TenderStartRequest request, CancellationToken cancellationToken = default)
+    public Task<ProviderResult> StartAsync(ProviderStartRequest request, CancellationToken cancellationToken = default)
         => shouldCrash()
             ? throw new InvalidOperationException($"Simulated crash before dispatching {TenderType}.")
             : inner.StartAsync(request, cancellationToken);
 
-    public Task<TenderOutcome> VerifyAsync(TenderVerifyRequest request, CancellationToken cancellationToken = default)
+    public Task<ProviderResult> VerifyAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
         => inner.VerifyAsync(request, cancellationToken);
 
-    public Task<TenderOutcome> ReleaseAsync(TenderReleaseRequest request, CancellationToken cancellationToken = default)
-        => inner.ReleaseAsync(request, cancellationToken);
+    public Task<ProviderResult> SettleAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
+        => inner.SettleAsync(request, cancellationToken);
+
+    public Task<ProviderResult> InquireAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
+        => inner.InquireAsync(request, cancellationToken);
 }

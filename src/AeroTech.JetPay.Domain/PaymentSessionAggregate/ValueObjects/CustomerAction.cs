@@ -1,7 +1,7 @@
 using AeroTech.Framework.Core.Domain.ValueObjects;
 using AeroTech.Messages.JetPay.Enums;
 
-namespace AeroTech.JetPay.Domain.PaymentIntentAggregate.ValueObjects
+namespace AeroTech.JetPay.Domain.PaymentSessionAggregate.ValueObjects
 {
     public sealed class CustomerAction : ValueObject
     {

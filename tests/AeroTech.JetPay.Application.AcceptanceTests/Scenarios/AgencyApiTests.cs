@@ -1,5 +1,4 @@
 using AeroTech.JetPay.Application.AcceptanceTests.Fixtures;
-using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ConfirmPaymentSession;
 using AeroTech.JetPay.Domain.PaymentSessionAggregate;
 using AeroTech.JetPay.Mock.Funding;
 using AeroTech.Messages.JetPay.Enums;
@@ -12,85 +11,64 @@ public sealed class AgencyApiTests : IDisposable
 {
     private readonly PaymentHarness _harness = new();
 
-    [Fact]
-    public async Task S12_Default_mode_debits_the_default_wallet_without_customer_action()
-    {
-        _harness.Wallet(PayerType.Agency, AgencyId, 5_000_000m, isDefault: true);
-        var session = (await AgencySessionAsync(PaymentAssuranceRequirement.FundsReceived)).Session;
-
-        var paid = await _harness.ConfirmDefaultAsync(session.Id);
-
-        var leg = Assert.Single(paid.PaymentIntents);
-        Assert.Equal(PaymentSessionStatus.Paid, paid.Session.Status);
-        Assert.Equal((TenderType.StoredValue, PaymentIntentStatus.Captured), (leg.TenderType, leg.Status));
-        Assert.Null(leg.NextAction);
-        Assert.DoesNotContain(_harness.ChangesOf(session.Id), change => change.Status == PaymentSessionStatus.RequiresCustomerAction);
-        Assert.Equal(4_000_000m, _harness.Ledger.WalletsOf(PayerType.Agency, AgencyId, Irr).Single().Balance);
-        Assert.Empty(_harness.Ledger.RouteAttempts);
-    }
-
-    [Fact]
-    public async Task S13_Insufficient_default_wallet_fails_deterministically_without_pgw_fallback()
-    {
-        _harness.Wallet(PayerType.Agency, AgencyId, 100_000m, isDefault: true);
-        var session = (await AgencySessionAsync(PaymentAssuranceRequirement.FundsReceived)).Session;
-
-        var result = await _harness.ConfirmDefaultAsync(session.Id);
-
-        Assert.Equal(PaymentSessionStatus.RequiresPaymentMethod, result.Session.Status);
-        Assert.Equal(FundingFailureCode.InsufficientFunds, result.Session.FailureCode);
-        Assert.Empty(result.PaymentIntents);
-        Assert.Empty(_harness.Ledger.RouteAttempts);
-        Assert.Empty(_harness.OperationsOf(MockOperationKind.PgwTransaction));
-        Assert.Equal(100_000m, _harness.Ledger.WalletsOf(PayerType.Agency, AgencyId, Irr).Single().Balance);
-    }
-
-    [Fact]
-    public async Task S13_Missing_default_wallet_fails_deterministically()
-    {
-        _harness.Wallet(PayerType.Agency, AgencyId, 5_000_000m);
-        var session = (await AgencySessionAsync(PaymentAssuranceRequirement.FundsReceived)).Session;
-
-        var result = await _harness.ConfirmDefaultAsync(session.Id);
-
-        Assert.Equal(PaymentSessionStatus.RequiresPaymentMethod, result.Session.Status);
-        Assert.Equal(FundingFailureCode.DefaultFundingSourceUnavailable, result.Session.FailureCode);
-        Assert.Empty(result.PaymentIntents);
-    }
-
-    [Fact]
-    public async Task S14_Agency_explicitly_selects_another_eligible_wallet()
-    {
-        _harness.Wallet(PayerType.Agency, AgencyId, 100_000m, isDefault: true, code: "main");
-        _harness.Wallet(PayerType.Agency, AgencyId, 2_000_000m, code: "promo");
-        var session = (await AgencySessionAsync(PaymentAssuranceRequirement.FundsReceived)).Session;
-        var promo = (await _harness.OptionsFor(session)).Single(option => option is { TenderType: TenderType.StoredValue, IsDefault: false });
-
-        var paid = await _harness.ConfirmAsync(session.Id, [new PaymentSelection(promo.Id, Amount)]);
-
-        Assert.Equal(PaymentSessionStatus.Paid, paid.Session.Status);
-        var wallets = _harness.Ledger.WalletsOf(PayerType.Agency, AgencyId, Irr).ToDictionary(wallet => wallet.Code, wallet => wallet.Balance);
-        Assert.Equal(100_000m, wallets["main"]);
-        Assert.Equal(1_000_000m, wallets["promo"]);
-    }
-
-    [Fact]
-    public async Task S15_Agency_credit_guarantees_with_zero_captured_money()
-    {
-        _harness.Credit(TenderType.AgencyCredit, PayerType.Agency, AgencyId, 5_000_000m);
-        var session = (await AgencySessionAsync(PaymentAssuranceRequirement.IssuanceGuaranteed)).Session;
-
-        var guaranteed = await _harness.FundAsync(session, null, (TenderType.AgencyCredit, Amount));
-        var leg = Leg(guaranteed, TenderType.AgencyCredit);
-
-        Assert.Equal(PaymentSessionStatus.Guaranteed, guaranteed.Session.Status);
-        Assert.Equal(0, guaranteed.Session.CapturedAmount);
-        Assert.Equal((PaymentIntentStatus.Authorized, PaymentCaptureMode.Manual, Amount, 0m), (leg.Status, leg.CaptureMode, leg.GuaranteedAmount, leg.CapturedAmount));
-        Assert.Equal(Amount, _harness.Ledger.FacilitiesOf(PayerType.Agency, AgencyId, Irr).Single().Reserved);
-    }
-
-    private Task<PaymentSessionAggregate.Views.PaymentSessionResponse> AgencySessionAsync(PaymentAssuranceRequirement assurance)
-        => _harness.CreateAsync(PayerType.Agency, AgencyId, PaymentInteractionMode.UnattendedApi, assurance);
-
     public void Dispose() => _harness.Dispose();
+
+    [Fact]
+    public async Task A12_Default_irr_wallet_with_enough_balance_pays_the_session_with_no_customer_action()
+    {
+        var wallet = _harness.Wallet(PayerType.Agency, AgencyId, 2_500_000m, isDefault: true);
+
+        var session = await _harness.CreateAgencyDefaultAsync();
+
+        Assert.Equal(PaymentSessionStatus.Paid, session.Status);
+        Assert.Equal(PaymentSelectionMode.Default, session.SelectionMode);
+        Assert.Equal((Amount, 0m), (session.CapturedAmount, session.OutstandingAmount));
+
+        var intent = Assert.Single(session.Intents);
+        Assert.Equal((TenderType.StoredValue, PaymentIntentStatus.Captured, Amount), (intent.TenderType, intent.Status, intent.CapturedAmount));
+        Assert.Null(intent.NextAction);
+
+        var attempt = Assert.Single(_harness.AttemptsOf(intent.Id));
+        Assert.Equal((MockFundingLedger.StoredValueProfile, ProviderPaymentAttemptStatus.Verified), (attempt.ProviderProfileId, attempt.Status));
+        Assert.Equal(1_500_000m, _harness.Ledger.WalletsOf(PayerType.Agency, AgencyId, Irr).Single(candidate => candidate.Id == wallet.Id).Balance);
+    }
+
+    [Fact]
+    public async Task A13_An_insufficient_default_wallet_never_falls_back_to_a_customer_redirect()
+    {
+        _harness.Wallet(PayerType.Agency, AgencyId, 400_000m, isDefault: true);
+
+        var session = await _harness.CreateAgencyDefaultAsync();
+
+        Assert.Equal(PaymentSessionStatus.RequiresPaymentMethod, session.Status);
+        Assert.Equal(FundingFailureCode.InsufficientFunds, session.FailureCode);
+        Assert.Empty(session.Intents);
+        Assert.Empty(_harness.Ledger.RouteAttempts);
+        Assert.Equal(400_000m, _harness.Ledger.WalletsOf(PayerType.Agency, AgencyId, Irr).Single().Balance);
+    }
+
+    [Fact]
+    public async Task A13_Without_a_default_wallet_the_default_funding_source_is_unavailable()
+    {
+        _harness.Wallet(PayerType.Agency, AgencyId, 9_000_000m, isDefault: false);
+
+        var session = await _harness.CreateAgencyDefaultAsync();
+
+        Assert.Equal(PaymentSessionStatus.RequiresPaymentMethod, session.Status);
+        Assert.Equal(FundingFailureCode.DefaultFundingSourceUnavailable, session.FailureCode);
+        Assert.Empty(session.Intents);
+    }
+
+    [Fact]
+    public async Task A_wallet_the_agency_refills_can_fund_the_session_through_an_explicit_selection()
+    {
+        _harness.Wallet(PayerType.Agency, AgencyId, 400_000m, isDefault: true);
+        var session = await _harness.CreateAgencyDefaultAsync();
+        _harness.Wallet(PayerType.Agency, AgencyId, 1_000_000m, isDefault: true);
+
+        var paid = await _harness.SelectAsync(session, TenderType.StoredValue);
+
+        Assert.Equal(PaymentSessionStatus.Paid, paid.Status);
+        Assert.Null(paid.FailureCode);
+    }
 }

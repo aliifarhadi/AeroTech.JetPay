@@ -14,8 +14,7 @@ namespace AeroTech.JetPay.Domain.Providers.Tenders
         bool IsDefault,
         bool CanAutoSelect,
         CustomerActionType CustomerActionType,
-        PaymentAssuranceCapability AssuranceCapability,
-        PaymentCaptureMode CaptureMode,
+        IReadOnlyList<PaymentAssuranceRequirement> SupportedAssuranceRequirements,
         DateTimeOffset? ExpiresAt,
         string? FundingReference);
 }

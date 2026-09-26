@@ -4,11 +4,11 @@ namespace AeroTech.Messages.JetPay.Enums
     {
         Created = 1,
         RequiresPaymentMethod = 2,
-        RequiresCustomerAction = 3,
-        Processing = 4,
-        PartiallyCovered = 5,
-        Guaranteed = 6,
-        Paid = 7,
+        Processing = 3,
+        PartiallyFunded = 4,
+        Guaranteed = 5,
+        Paid = 6,
+        Failed = 7,
         Cancelled = 8,
         Expired = 9
     }

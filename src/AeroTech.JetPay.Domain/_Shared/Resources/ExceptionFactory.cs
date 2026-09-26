@@ -25,14 +25,20 @@ namespace AeroTech.JetPay.Domain._Shared.Resources
         public static BusinessException PaymentIntentCannotTransition(params object?[] args) =>
             new(8006, ExceptionMessages.PaymentIntentCannotTransition, args) { HttpStatus = 409 };
 
-        public static BusinessException PaymentAmountMustBePositive(params object?[] args) =>
-            new(8008, ExceptionMessages.PaymentAmountMustBePositive, args) { HttpStatus = 422 };
+        public static BusinessException ProviderEffectUnresolved(params object?[] args) =>
+            new(8007, ExceptionMessages.ProviderEffectUnresolved, args) { HttpStatus = 409 };
+
+        public static BusinessException PaymentAmountMustNotBeNegative(params object?[] args) =>
+            new(8008, ExceptionMessages.PaymentAmountMustNotBeNegative, args) { HttpStatus = 422 };
 
         public static BusinessException SessionExpiryMustBeInTheFuture(params object?[] args) =>
             new(8009, ExceptionMessages.SessionExpiryMustBeInTheFuture, args) { HttpStatus = 422 };
 
         public static BusinessException CurrencyMismatch(params object?[] args) =>
             new(8010, ExceptionMessages.CurrencyMismatch, args) { HttpStatus = 422 };
+
+        public static BusinessException ProviderAttemptCannotTransition(params object?[] args) =>
+            new(8011, ExceptionMessages.ProviderAttemptCannotTransition, args) { HttpStatus = 409 };
 
         public static BusinessException IdempotencyKeyReusedWithDifferentPayload(params object?[] args) =>
             new(8020, ExceptionMessages.IdempotencyKeyReusedWithDifferentPayload, args) { HttpStatus = 409 };
@@ -46,8 +52,8 @@ namespace AeroTech.JetPay.Domain._Shared.Resources
         public static BusinessException SelectionsRequired(params object?[] args) =>
             new(8031, ExceptionMessages.SelectionsRequired, args) { HttpStatus = 422 };
 
-        public static BusinessException SelectionsNotAllowedForDefault(params object?[] args) =>
-            new(8032, ExceptionMessages.SelectionsNotAllowedForDefault, args) { HttpStatus = 422 };
+        public static BusinessException SelectionsOnlyForExplicit(params object?[] args) =>
+            new(8032, ExceptionMessages.SelectionsOnlyForExplicit, args) { HttpStatus = 422 };
 
         public static BusinessException DuplicateSelection(params object?[] args) =>
             new(8033, ExceptionMessages.DuplicateSelection, args) { HttpStatus = 422 };
@@ -64,20 +70,17 @@ namespace AeroTech.JetPay.Domain._Shared.Resources
         public static BusinessException PartialAmountNotSupported(params object?[] args) =>
             new(8037, ExceptionMessages.PartialAmountNotSupported, args) { HttpStatus = 422 };
 
+        public static BusinessException MultipleSelectionsNotSupported(params object?[] args) =>
+            new(8038, ExceptionMessages.MultipleSelectionsNotSupported, args) { HttpStatus = 422 };
+
         public static BusinessException TenderProviderNotRegistered(params object?[] args) =>
             new(8040, ExceptionMessages.TenderProviderNotRegistered, args) { HttpStatus = 500 };
 
-        public static BusinessException ProviderOutcomeCannotBeRecorded(params object?[] args) =>
-            new(8041, ExceptionMessages.ProviderOutcomeCannotBeRecorded, args) { HttpStatus = 409 };
+        public static BusinessException ProviderProfileNotFound(params object?[] args) =>
+            new(8041, ExceptionMessages.ProviderProfileNotFound, args) { HttpStatus = 500 };
 
-        public static BusinessException ProviderOutcomeIsNotExpected(params object?[] args) =>
-            new(8042, ExceptionMessages.ProviderOutcomeIsNotExpected, args) { HttpStatus = 502 };
-
-        public static BusinessException ProviderAmountMismatch(params object?[] args) =>
-            new(8043, ExceptionMessages.ProviderAmountMismatch, args) { HttpStatus = 502 };
-
-        public static BusinessException ProviderDeclinedRelease(params object?[] args) =>
-            new(8045, ExceptionMessages.ProviderDeclinedRelease, args) { HttpStatus = 502 };
+        public static BusinessException NoProviderAttempt(params object?[] args) =>
+            new(8042, ExceptionMessages.NoProviderAttempt, args) { HttpStatus = 409 };
 
         public static BusinessException PaidUnappliedRequiresCapturedMoney(params object?[] args) =>
             new(8090, ExceptionMessages.PaidUnappliedRequiresCapturedMoney, args) { HttpStatus = 500 };

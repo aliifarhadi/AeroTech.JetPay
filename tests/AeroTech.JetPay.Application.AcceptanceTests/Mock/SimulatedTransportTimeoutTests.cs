@@ -13,7 +13,7 @@ public sealed class SimulatedTransportTimeoutTests
     public async Task An_armed_timeout_lets_the_mutation_commit_but_hides_its_outcome()
     {
         _faults.ArmTransportTimeouts(1);
-        var context = Request(HttpMethods.Post, "/Service/v1/Payment-Intents/1001/Confirm");
+        var context = Request(HttpMethods.Post, "/Service/v1/Payment-Sessions/1001/Selections");
 
         await Middleware().InvokeAsync(context);
 
@@ -26,9 +26,9 @@ public sealed class SimulatedTransportTimeoutTests
     public async Task Only_the_armed_number_of_mutations_time_out()
     {
         _faults.ArmTransportTimeouts(1);
-        await Middleware().InvokeAsync(Request(HttpMethods.Post, "/Service/v1/Payment-Intents"));
+        await Middleware().InvokeAsync(Request(HttpMethods.Post, "/Service/v1/Payment-Sessions"));
 
-        var next = Request(HttpMethods.Post, "/Service/v1/Payment-Intents");
+        var next = Request(HttpMethods.Post, "/Service/v1/Payment-Sessions");
         await Middleware().InvokeAsync(next);
 
         Assert.Equal(StatusCodes.Status200OK, next.Response.StatusCode);
@@ -39,7 +39,7 @@ public sealed class SimulatedTransportTimeoutTests
     public async Task Reads_and_mock_controls_are_never_timed_out()
     {
         _faults.ArmTransportTimeouts(1);
-        var read = Request(HttpMethods.Get, "/Service/v1/Payment-Intents/1001");
+        var read = Request(HttpMethods.Get, "/Service/v1/Payment-Sessions/1001");
         var control = Request(HttpMethods.Post, "/Mock/v1/Clock/Advance");
 
         await Middleware().InvokeAsync(read);

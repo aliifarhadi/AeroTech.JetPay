@@ -4,16 +4,14 @@ namespace AeroTech.Messages.JetPay.Enums
     {
         IranianPgw = 1,
         ExternalCard = 2,
-        AccountToAccount = 3,
-        Bnpl = 4,
-        StoredValue = 5,
-        AgencyDeposit = 6,
-        CustomerCredit = 7,
-        AgencyCredit = 8,
-        CorporateCredit = 9,
+        Bnpl = 3,
+        StoredValue = 4,
+        AgencyDeposit = 5,
+        CustomerCredit = 6,
+        AgencyCredit = 7,
+        CorporateCredit = 8,
+        BankTransferReference = 9,
         Cash = 10,
-        BankTransferReference = 11,
-        Voucher = 12,
-        LoyaltyPoints = 13
+        PosTerminal = 11
     }
 }

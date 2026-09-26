@@ -1,29 +1,21 @@
 using AeroTech.JetPay.Mock.Funding;
 using AeroTech.Messages.JetPay.Enums;
-using AeroTech.Messages.Shared.Enums;
 
 namespace AeroTech.JetPay.Mock.Api
 {
     public sealed record SetWalletRequest(PayerType PayerType, long PayerId, int CurrencyId, string Code, decimal Balance, bool IsDefault);
 
-    public sealed record SetCreditFacilityRequest(TenderType TenderType, PayerType PayerType, long PayerId, int CurrencyId, decimal Limit, int? AuthorizationValiditySeconds);
-
-    public sealed record SetCashAcceptanceRequest(IReadOnlyList<long> OfficeIds, IReadOnlyList<SalesChannel>? SalesChannels);
-
-    public sealed record PayerReference(PayerType PayerType, long PayerId);
-
-    public sealed record SetBnplRequest(bool Enabled, decimal? MinimumAmount, decimal? MaximumAmount, IReadOnlyList<PayerReference>? DisabledPayers);
-
-    public sealed record ConfigurePgwProfileRequest(
-        int? Priority,
+    public sealed record ConfigureProviderProfileRequest(
         bool? Enabled,
-        IReadOnlyList<int>? CurrencyIds,
         MockPgwMode? Mode,
-        MockInquiryOutcome? InquiryOutcome,
+        IReadOnlyList<int>? CurrencyIds,
         decimal? MinimumAmount,
-        decimal? MaximumAmount);
+        decimal? MaximumAmount,
+        bool? SupportsInquiry,
+        bool? RequiresSettlementAfterVerify,
+        int? VerifyWindowSeconds);
 
-    public sealed record CompleteCustomerActionRequest(MockCustomerOutcome Outcome = MockCustomerOutcome.Approved);
+    public sealed record CustomerPaymentRequest(MockCustomerOutcome Outcome = MockCustomerOutcome.Paid);
 
     public sealed record AdvanceClockRequest(int Seconds);
 

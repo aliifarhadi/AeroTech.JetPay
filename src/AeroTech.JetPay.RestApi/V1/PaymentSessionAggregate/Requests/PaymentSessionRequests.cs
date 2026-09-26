@@ -1,24 +1,29 @@
-using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ConfirmPaymentSession;
+using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.AddPaymentSelections;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CreatePaymentSession;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Views;
 using AeroTech.Messages.JetPay.Enums;
 
 namespace AeroTech.JetPay.RestApi.V1.PaymentSessionAggregate.Requests
 {
+    public sealed record PaymentSelectionRequest(string PaymentMethodOptionId, decimal Amount);
+
     public sealed record CreatePaymentSessionRequest(
         string PayableInstructionId,
         long OrderId,
         string OrderReference,
         int CommercialVersion,
         PaymentPurpose Purpose,
+        long IssuerLegalEntityId,
         PayerType PayerType,
         long PayerId,
-        PaymentInitiatorContextView InitiatorContext,
-        decimal Amount,
+        PaymentInitiatorContextView Initiator,
+        PaymentInteractionMode InteractionMode,
+        PaymentSelectionMode SelectionMode,
+        decimal RequiredAmount,
         int CurrencyId,
         PaymentAssuranceRequirement AssuranceRequirement,
-        PaymentInteractionMode InteractionMode,
-        DateTimeOffset? ExpiresAt)
+        DateTimeOffset? ExpiresAt,
+        IReadOnlyList<PaymentSelectionRequest>? Selections)
     {
         public CreatePaymentSessionCommand ToCommand(string idempotencyKey)
             => new(
@@ -28,28 +33,27 @@ namespace AeroTech.JetPay.RestApi.V1.PaymentSessionAggregate.Requests
                 OrderReference,
                 CommercialVersion,
                 Purpose,
+                IssuerLegalEntityId,
                 PayerType,
                 PayerId,
-                InitiatorContext,
-                Amount,
+                Initiator,
+                InteractionMode,
+                SelectionMode,
+                RequiredAmount,
                 CurrencyId,
                 AssuranceRequirement,
-                InteractionMode,
-                ExpiresAt);
+                ExpiresAt,
+                (Selections ?? []).Select(selection => new PaymentSelection(selection.PaymentMethodOptionId, selection.Amount)).ToList());
     }
 
-    public sealed record PaymentSelectionRequest(string PaymentMethodOptionId, decimal Amount);
-
-    public sealed record ConfirmPaymentSessionRequest(
-        PaymentSelectionMode SelectionMode,
+    public sealed record AddPaymentSelectionsRequest(
         IReadOnlyList<PaymentSelectionRequest>? Selections,
         string? ReturnUrl)
     {
-        public ConfirmPaymentSessionCommand ToCommand(string idempotencyKey, string paymentSessionId)
+        public AddPaymentSelectionsCommand ToCommand(string idempotencyKey, string paymentSessionId)
             => new(
                 idempotencyKey,
                 paymentSessionId,
-                SelectionMode,
                 (Selections ?? []).Select(selection => new PaymentSelection(selection.PaymentMethodOptionId, selection.Amount)).ToList(),
                 ReturnUrl);
     }

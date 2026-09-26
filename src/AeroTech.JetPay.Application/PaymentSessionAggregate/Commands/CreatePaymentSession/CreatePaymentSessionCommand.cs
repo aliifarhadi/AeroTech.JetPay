@@ -13,14 +13,17 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CreatePay
         string OrderReference,
         int CommercialVersion,
         PaymentPurpose Purpose,
+        long IssuerLegalEntityId,
         PayerType PayerType,
         long PayerId,
-        PaymentInitiatorContextView InitiatorContext,
-        decimal Amount,
+        PaymentInitiatorContextView Initiator,
+        PaymentInteractionMode InteractionMode,
+        PaymentSelectionMode SelectionMode,
+        decimal RequiredAmount,
         int CurrencyId,
         PaymentAssuranceRequirement AssuranceRequirement,
-        PaymentInteractionMode InteractionMode,
-        DateTimeOffset? ExpiresAt) : IRequest<PaymentSessionResponse>
+        DateTimeOffset? ExpiresAt,
+        IReadOnlyList<PaymentSelection> Selections) : IRequest<PaymentSessionView>
     {
         public CreatePaymentSessionArgs ToArgs()
             => new(
@@ -29,32 +32,40 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CreatePay
                 OrderReference,
                 CommercialVersion,
                 Purpose,
+                IssuerLegalEntityId,
                 PayerType,
                 PayerId,
-                InitiatorContext.ToValueObject(),
-                Amount,
+                Initiator.ToValueObject(),
+                InteractionMode,
+                SelectionMode,
+                RequiredAmount,
                 CurrencyId,
                 AssuranceRequirement,
-                InteractionMode,
                 ExpiresAt);
 
         public string Fingerprint()
             => RequestFingerprint.Of(
+            [
                 PayableInstructionId,
                 OrderId,
                 OrderReference,
                 CommercialVersion,
                 Purpose,
+                IssuerLegalEntityId,
                 PayerType,
                 PayerId,
-                InitiatorContext.SalesChannel,
-                InitiatorContext.ActorType,
-                InitiatorContext.ActorId,
-                InitiatorContext.OfficeId,
-                Amount,
+                Initiator.ActorType,
+                Initiator.ActorId,
+                Initiator.SalesChannel,
+                Initiator.OfficeId,
+                InteractionMode,
+                SelectionMode,
+                RequiredAmount,
                 CurrencyId,
                 AssuranceRequirement,
-                InteractionMode,
-                ExpiresAt);
+                ExpiresAt,
+                Selections.Count,
+                .. Selections.SelectMany(selection => new object?[] { selection.PaymentMethodOptionId, selection.Amount })
+            ]);
     }
 }

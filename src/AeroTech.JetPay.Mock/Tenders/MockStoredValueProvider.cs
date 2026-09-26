@@ -18,23 +18,31 @@ namespace AeroTech.JetPay.Mock.Tenders
 
         public TenderType TenderType => TenderType.StoredValue;
 
-        public Task<TenderOutcome> StartAsync(TenderStartRequest request, CancellationToken cancellationToken = default)
+        public Task<ProviderResult> StartAsync(ProviderStartRequest request, CancellationToken cancellationToken = default)
         {
-            var (debit, failureCode) = _ledger.DebitWallet(request.IdempotencyKey, request.FundingReference ?? string.Empty, request.Amount, _clock.GetDateTime());
+            var (debit, failureCode) = _ledger.DebitWallet(
+                request.IdempotencyKey,
+                request.PaymentIntentId,
+                request.FundingReference ?? string.Empty,
+                request.Amount,
+                _clock.GetDateTime());
 
             return Task.FromResult(debit is not null
-                ? TenderOutcome.Captured(debit.Amount, $"{debit.Reference}|{debit.Key}")
-                : TenderOutcome.Failed(failureCode!, failureCode == "InsufficientFunds"
+                ? ProviderResult.Succeeded(debit.Key, debit.PaidAt)
+                : ProviderResult.Declined(failureCode!, failureCode == "InsufficientFunds"
                     ? "The wallet balance does not cover the amount."
                     : "The wallet is not available."));
         }
 
-        public Task<TenderOutcome> VerifyAsync(TenderVerifyRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(_ledger.FindOperation(request.IdempotencyKey) is { Kind: MockOperationKind.WalletDebit } debit
-                ? TenderOutcome.Captured(debit.Amount, $"{debit.Reference}|{debit.Key}")
-                : TenderOutcome.Failed("NoProviderEffect", "The wallet has no debit for this attempt."));
+        public Task<ProviderResult> VerifyAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
+            => InquireAsync(request, cancellationToken);
 
-        public Task<TenderOutcome> ReleaseAsync(TenderReleaseRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(TenderOutcome.Released());
+        public Task<ProviderResult> SettleAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
+            => InquireAsync(request, cancellationToken);
+
+        public Task<ProviderResult> InquireAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(_ledger.FindOperation(request.IdempotencyKey) is { Kind: MockOperationKind.WalletDebit } debit
+                ? ProviderResult.Succeeded(debit.Key, debit.PaidAt)
+                : ProviderResult.NoEffect());
     }
 }

@@ -1,25 +1,22 @@
+using AeroTech.JetPay.Domain.Providers.Profiles;
 using AeroTech.JetPay.Mock.Configuration;
 using AeroTech.Messages.JetPay.Enums;
-using AeroTech.Messages.Shared.Enums;
 using Microsoft.Extensions.Options;
 
 namespace AeroTech.JetPay.Mock.Funding
 {
     public sealed class MockFundingLedger
     {
-        public const string PrimaryPgwRoute = "mock-pgw-a";
-        public const string SecondaryPgwRoute = "mock-pgw-b";
+        public const string StoredValueProfile = "mock-stored-value";
+        public const string PrimaryPgwProfile = "mock-pgw-a";
+        public const string SecondaryPgwProfile = "mock-pgw-b";
 
         private readonly object _gate = new();
         private readonly MockJetPayOptions _options;
         private readonly Dictionary<string, MockWallet> _wallets = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, MockCreditFacility> _facilities = new(StringComparer.Ordinal);
         private readonly Dictionary<string, MockOperation> _operations = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, MockPgwProfile> _pgwProfiles = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, MockProviderProfileSettings> _profiles = new(StringComparer.Ordinal);
         private readonly List<MockRouteAttempt> _routeAttempts = [];
-        private readonly HashSet<long> _cashOffices = [];
-        private readonly HashSet<SalesChannel> _cashChannels = [];
-        private readonly HashSet<(PayerType, long)> _bnplDisabledPayers = [];
 
         public MockFundingLedger(IOptions<MockJetPayOptions> options)
         {
@@ -27,31 +24,43 @@ namespace AeroTech.JetPay.Mock.Funding
             Reset();
         }
 
-        public bool BnplEnabled { get; private set; }
-
-        public decimal? BnplMinimumAmount { get; private set; }
-
-        public decimal? BnplMaximumAmount { get; private set; }
-
         public void Reset()
         {
             lock (_gate)
             {
                 _wallets.Clear();
-                _facilities.Clear();
                 _operations.Clear();
-                _pgwProfiles.Clear();
+                _profiles.Clear();
                 _routeAttempts.Clear();
-                _cashOffices.Clear();
-                _cashChannels.Clear();
-                _bnplDisabledPayers.Clear();
 
-                _pgwProfiles[PrimaryPgwRoute] = new MockPgwProfile { Code = PrimaryPgwRoute, Priority = 1, CurrencyIds = _options.PgwCurrencyIds };
-                _pgwProfiles[SecondaryPgwRoute] = new MockPgwProfile { Code = SecondaryPgwRoute, Priority = 2, CurrencyIds = _options.PgwCurrencyIds };
+                _profiles[StoredValueProfile] = new MockProviderProfileSettings
+                {
+                    Id = StoredValueProfile,
+                    TenderType = TenderType.StoredValue,
+                    CurrencyIds = _options.StoredValueCurrencyIds,
+                    SupportsInquiry = true,
+                    SupportsProviderIdempotency = true,
+                    UnverifiedPaymentExpiryBehavior = UnverifiedPaymentExpiryBehavior.ManualReconciliation
+                };
 
-                BnplEnabled = true;
-                BnplMinimumAmount = null;
-                BnplMaximumAmount = null;
+                _profiles[PrimaryPgwProfile] = new MockProviderProfileSettings
+                {
+                    Id = PrimaryPgwProfile,
+                    TenderType = TenderType.IranianPgw,
+                    CurrencyIds = _options.PgwCurrencyIds,
+                    SupportsInquiry = true,
+                    RequiresSettlementAfterVerify = true,
+                    SupportsProviderIdempotency = true,
+                    VerifyWindowSeconds = _options.VerifyWindowSeconds
+                };
+
+                _profiles[SecondaryPgwProfile] = new MockProviderProfileSettings
+                {
+                    Id = SecondaryPgwProfile,
+                    TenderType = TenderType.IranianPgw,
+                    CurrencyIds = _options.PgwCurrencyIds,
+                    VerifyWindowSeconds = _options.VerifyWindowSeconds
+                };
             }
         }
 
@@ -73,67 +82,7 @@ namespace AeroTech.JetPay.Mock.Funding
                 }
 
                 wallet.IsDefault = isDefault;
-                return wallet;
-            }
-        }
-
-        public MockCreditFacility SetCreditFacility(TenderType tenderType, PayerType payerType, long payerId, int currencyId, decimal limit, int? authorizationValiditySeconds)
-        {
-            lock (_gate)
-            {
-                var id = $"credit:{tenderType}:{payerType}:{payerId}:{currencyId}";
-
-                if (!_facilities.TryGetValue(id, out var facility))
-                    _facilities[id] = facility = new MockCreditFacility { Id = id, TenderType = tenderType, PayerType = payerType, PayerId = payerId, CurrencyId = currencyId };
-
-                facility.Limit = limit;
-                facility.AuthorizationValiditySeconds = authorizationValiditySeconds;
-                return facility;
-            }
-        }
-
-        public void SetCashAcceptance(IEnumerable<long> officeIds, IEnumerable<SalesChannel> salesChannels)
-        {
-            lock (_gate)
-            {
-                _cashOffices.Clear();
-                _cashOffices.UnionWith(officeIds);
-                _cashChannels.Clear();
-                _cashChannels.UnionWith(salesChannels);
-            }
-        }
-
-        public void SetBnpl(bool enabled, decimal? minimumAmount, decimal? maximumAmount, IEnumerable<(PayerType, long)> disabledPayers)
-        {
-            lock (_gate)
-            {
-                BnplEnabled = enabled;
-                BnplMinimumAmount = minimumAmount;
-                BnplMaximumAmount = maximumAmount;
-                _bnplDisabledPayers.Clear();
-                _bnplDisabledPayers.UnionWith(disabledPayers);
-            }
-        }
-
-        public MockPgwProfile ConfigurePgwProfile(string code, Action<MockPgwProfile> configure)
-        {
-            lock (_gate)
-            {
-                if (!_pgwProfiles.TryGetValue(code, out var profile))
-                    _pgwProfiles[code] = profile = new MockPgwProfile { Code = code, Priority = _pgwProfiles.Count + 1, CurrencyIds = _options.PgwCurrencyIds };
-
-                configure(profile);
-                return profile;
-            }
-        }
-
-        public void SetCustomerOutcome(string paymentIntentId, MockCustomerOutcome outcome)
-        {
-            lock (_gate)
-            {
-                if (_operations.TryGetValue(paymentIntentId, out var operation)
-                    && operation.Kind is MockOperationKind.PgwTransaction or MockOperationKind.BnplApplication)
-                    operation.CustomerOutcome = outcome;
+                return Copy(wallet);
             }
         }
 
@@ -147,78 +96,45 @@ namespace AeroTech.JetPay.Mock.Funding
                     .ToList();
         }
 
-        public IReadOnlyList<MockCreditFacility> FacilitiesOf(PayerType payerType, long payerId, int currencyId)
+        public MockProviderProfileSettings ConfigureProfile(string providerProfileId, Action<MockProviderProfileSettings> configure)
         {
             lock (_gate)
-                return _facilities.Values
-                    .Where(facility => facility.PayerType == payerType && facility.PayerId == payerId && facility.CurrencyId == currencyId)
-                    .Select(Copy)
-                    .ToList();
+            {
+                if (!_profiles.TryGetValue(providerProfileId, out var profile))
+                    throw new KeyNotFoundException($"Mock provider profile '{providerProfileId}' does not exist.");
+
+                configure(profile);
+                profile.Revision++;
+                return Copy(profile);
+            }
         }
 
-        public MockCreditFacility? FindCreditFacility(string facilityId)
+        public IReadOnlyList<MockProviderProfileSettings> Profiles()
         {
             lock (_gate)
-                return _facilities.TryGetValue(facilityId, out var facility) ? Copy(facility) : null;
+                return _profiles.Values.OrderBy(profile => profile.Id, StringComparer.Ordinal).Select(Copy).ToList();
         }
 
-        public bool IsCashAccepted(long? officeId, SalesChannel salesChannel)
+        public MockProviderProfileSettings? Profile(string providerProfileId)
         {
             lock (_gate)
-                return officeId is { } office
-                       && _cashOffices.Contains(office)
-                       && (_cashChannels.Count == 0 || _cashChannels.Contains(salesChannel));
-        }
-
-        public bool IsBnplAvailable(PayerType payerType, long payerId, int currencyId)
-        {
-            lock (_gate)
-                return BnplEnabled && !_bnplDisabledPayers.Contains((payerType, payerId)) && _options.BnplCurrencyIds.Contains(currencyId);
-        }
-
-        public IReadOnlyList<MockPgwProfile> PgwRoutes(int currencyId)
-        {
-            lock (_gate)
-                return _pgwProfiles.Values
-                    .Where(profile => profile.Enabled && profile.CurrencyIds.Contains(currencyId))
-                    .OrderBy(profile => profile.Priority)
-                    .ToList();
-        }
-
-        public MockPgwProfile? PgwProfile(string code)
-        {
-            lock (_gate)
-                return _pgwProfiles.GetValueOrDefault(code);
-        }
-
-        public object Snapshot()
-        {
-            lock (_gate)
-                return new
-                {
-                    wallets = _wallets.Values.Select(Copy).ToList(),
-                    creditFacilities = _facilities.Values.Select(Copy).ToList(),
-                    cash = new { officeIds = _cashOffices.ToList(), salesChannels = _cashChannels.ToList() },
-                    bnpl = new { enabled = BnplEnabled, minimumAmount = BnplMinimumAmount, maximumAmount = BnplMaximumAmount, disabledPayers = _bnplDisabledPayers.ToList() },
-                    pgwProfiles = _pgwProfiles.Values.OrderBy(profile => profile.Priority).ToList(),
-                    operations = _operations.Values.ToList(),
-                    routeAttempts = _routeAttempts.ToList()
-                };
+                return _profiles.TryGetValue(providerProfileId, out var profile) ? Copy(profile) : null;
         }
 
         public MockOperation? FindOperation(string key)
         {
             lock (_gate)
-                return _operations.GetValueOrDefault(key);
+                return _operations.TryGetValue(key, out var operation) ? Copy(operation) : null;
         }
 
-        public IReadOnlyList<MockOperation> Operations
+        public IReadOnlyList<MockOperation> OperationsOf(string paymentIntentId)
         {
-            get
-            {
-                lock (_gate)
-                    return _operations.Values.ToList();
-            }
+            lock (_gate)
+                return _operations.Values
+                    .Where(operation => operation.PaymentIntentId == paymentIntentId)
+                    .OrderBy(operation => operation.CreatedAt)
+                    .Select(Copy)
+                    .ToList();
         }
 
         public IReadOnlyList<MockRouteAttempt> RouteAttempts
@@ -230,12 +146,33 @@ namespace AeroTech.JetPay.Mock.Funding
             }
         }
 
-        public (MockOperation? Operation, string? FailureCode) DebitWallet(string key, string walletId, decimal amount, DateTimeOffset now)
+        public object Snapshot()
+        {
+            lock (_gate)
+                return new
+                {
+                    wallets = _wallets.Values.Select(Copy).ToList(),
+                    providerProfiles = _profiles.Values.OrderBy(profile => profile.Id, StringComparer.Ordinal).Select(Copy).ToList(),
+                    operations = _operations.Values.Select(Copy).ToList(),
+                    routeAttempts = _routeAttempts.ToList()
+                };
+        }
+
+        public void RecordRouteAttempt(string paymentIntentId, string providerProfileId, string result)
+        {
+            lock (_gate)
+                _routeAttempts.Add(new MockRouteAttempt(paymentIntentId, providerProfileId, result));
+        }
+
+        public (MockOperation? Operation, string? FailureCode) DebitWallet(string key, string paymentIntentId, string walletId, decimal amount, DateTimeOffset now)
         {
             lock (_gate)
             {
                 if (_operations.TryGetValue(key, out var existing))
-                    return (existing, null);
+                {
+                    existing.StartCalls++;
+                    return (Copy(existing), null);
+                }
 
                 if (!_wallets.TryGetValue(walletId, out var wallet))
                     return (null, "FundingSourceUnavailable");
@@ -244,107 +181,163 @@ namespace AeroTech.JetPay.Mock.Funding
                     return (null, "InsufficientFunds");
 
                 wallet.Balance -= amount;
-                return (Record(key, MockOperationKind.WalletDebit, walletId, amount, now), null);
+
+                var debit = Record(key, MockOperationKind.WalletDebit, walletId, StoredValueProfile, paymentIntentId, amount, now);
+                debit.CustomerOutcome = MockCustomerOutcome.Paid;
+                debit.PaidAt = now;
+                debit.VerifiedAt = now;
+                return (Copy(debit), null);
             }
         }
 
-        public (MockOperation? Operation, string? FailureCode) ReserveCredit(string key, string facilityId, decimal amount, DateTimeOffset now)
+        public MockOperation OpenPgwTransaction(string key, string providerProfileId, string paymentIntentId, decimal amount, DateTimeOffset now)
         {
             lock (_gate)
             {
                 if (_operations.TryGetValue(key, out var existing))
-                    return (existing, null);
+                {
+                    existing.StartCalls++;
+                    return Copy(existing);
+                }
 
-                if (!_facilities.TryGetValue(facilityId, out var facility))
-                    return (null, "FundingSourceUnavailable");
-
-                if (facility.Available < amount)
-                    return (null, "InsufficientFunds");
-
-                facility.Reserved += amount;
-                return (Record(key, MockOperationKind.CreditReservation, facilityId, amount, now), null);
+                return Copy(Record(key, MockOperationKind.PgwTransaction, $"pgw:{providerProfileId}:{Guid.NewGuid():N}", providerProfileId, paymentIntentId, amount, now));
             }
         }
 
-        public MockOperation RecordCashReceipt(string key, long officeId, decimal amount, DateTimeOffset now)
-        {
-            lock (_gate)
-                return _operations.TryGetValue(key, out var existing)
-                    ? existing
-                    : Record(key, MockOperationKind.CashReceipt, $"office:{officeId}", amount, now, officeId: officeId);
-        }
-
-        public MockOperation OpenPgwTransaction(string key, string routeCode, decimal amount, DateTimeOffset now)
-        {
-            lock (_gate)
-                return _operations.TryGetValue(key, out var existing)
-                    ? existing
-                    : Record(key, MockOperationKind.PgwTransaction, $"pgw:{routeCode}:{Guid.NewGuid():N}", amount, now, routeCode);
-        }
-
-        public MockOperation OpenBnplApplication(string key, decimal amount, DateTimeOffset now)
-        {
-            lock (_gate)
-                return _operations.TryGetValue(key, out var existing)
-                    ? existing
-                    : Record(key, MockOperationKind.BnplApplication, $"bnpl:{Guid.NewGuid():N}", amount, now);
-        }
-
-        public void RecordRouteAttempt(string paymentIntentId, string routeCode, string result)
-        {
-            lock (_gate)
-                _routeAttempts.Add(new MockRouteAttempt(paymentIntentId, routeCode, result));
-        }
-
-        public void MarkSettled(string key)
+        public MockOperation? PayLatest(string paymentIntentId, MockCustomerOutcome outcome, DateTimeOffset now)
         {
             lock (_gate)
             {
-                if (_operations.TryGetValue(key, out var operation))
-                    operation.Settled = true;
+                var transaction = _operations.Values
+                    .Where(operation => operation.Kind == MockOperationKind.PgwTransaction && operation.PaymentIntentId == paymentIntentId)
+                    .OrderByDescending(operation => operation.CreatedAt)
+                    .FirstOrDefault();
+
+                if (transaction is null)
+                    return null;
+
+                if (transaction.CustomerOutcome is null)
+                {
+                    transaction.CustomerOutcome = outcome;
+                    transaction.PaidAt = outcome == MockCustomerOutcome.Paid ? now : null;
+                }
+
+                return Copy(transaction);
             }
         }
 
-        public void Release(string key)
+        public MockOperation? VerifyPgw(string key, DateTimeOffset now)
         {
             lock (_gate)
             {
-                if (!_operations.TryGetValue(key, out var operation) || operation.Released)
-                    return;
+                if (!_operations.TryGetValue(key, out var transaction))
+                    return null;
 
-                operation.Released = true;
+                ReturnIfWindowElapsed(transaction, now);
 
-                if (operation.Kind == MockOperationKind.CreditReservation && _facilities.TryGetValue(operation.Reference, out var facility))
-                    facility.Reserved -= operation.Amount;
+                if (transaction is { CustomerOutcome: MockCustomerOutcome.Paid, ReturnedAt: null })
+                    transaction.VerifiedAt ??= now;
+
+                return Copy(transaction);
             }
         }
 
-        private MockOperation Record(string key, MockOperationKind kind, string reference, decimal amount, DateTimeOffset now, string? routeCode = null, long? officeId = null)
+        public MockOperation? SettlePgw(string key, DateTimeOffset now)
+        {
+            lock (_gate)
+            {
+                if (!_operations.TryGetValue(key, out var transaction))
+                    return null;
+
+                if (transaction.VerifiedAt is not null)
+                    transaction.SettledAt ??= now;
+
+                return Copy(transaction);
+            }
+        }
+
+        public MockOperation? InquirePgw(string key, DateTimeOffset now)
+        {
+            lock (_gate)
+            {
+                if (!_operations.TryGetValue(key, out var transaction))
+                    return null;
+
+                ReturnIfWindowElapsed(transaction, now);
+                return Copy(transaction);
+            }
+        }
+
+        private void ReturnIfWindowElapsed(MockOperation transaction, DateTimeOffset now)
+        {
+            if (transaction is not { CustomerOutcome: MockCustomerOutcome.Paid, VerifiedAt: null, ReturnedAt: null, PaidAt: { } paidAt })
+                return;
+
+            if (_profiles.GetValueOrDefault(transaction.ProviderProfileId)?.VerifyWindowSeconds is not { } window)
+                return;
+
+            var deadline = paidAt.AddSeconds(window);
+
+            if (now > deadline)
+                transaction.ReturnedAt = deadline;
+        }
+
+        private MockOperation Record(
+            string key,
+            MockOperationKind kind,
+            string reference,
+            string providerProfileId,
+            string paymentIntentId,
+            decimal amount,
+            DateTimeOffset now)
             => _operations[key] = new MockOperation
             {
                 Key = key,
                 Kind = kind,
                 Reference = reference,
+                ProviderProfileId = providerProfileId,
+                PaymentIntentId = paymentIntentId,
                 Amount = amount,
-                CreatedAt = now,
-                RouteCode = routeCode,
-                OfficeId = officeId
+                CreatedAt = now
             };
 
         private static MockWallet Copy(MockWallet wallet)
             => new() { Id = wallet.Id, Code = wallet.Code, PayerType = wallet.PayerType, PayerId = wallet.PayerId, CurrencyId = wallet.CurrencyId, Balance = wallet.Balance, IsDefault = wallet.IsDefault };
 
-        private static MockCreditFacility Copy(MockCreditFacility facility)
+        private static MockOperation Copy(MockOperation operation)
             => new()
             {
-                Id = facility.Id,
-                TenderType = facility.TenderType,
-                PayerType = facility.PayerType,
-                PayerId = facility.PayerId,
-                CurrencyId = facility.CurrencyId,
-                Limit = facility.Limit,
-                Reserved = facility.Reserved,
-                AuthorizationValiditySeconds = facility.AuthorizationValiditySeconds
+                Key = operation.Key,
+                Kind = operation.Kind,
+                Reference = operation.Reference,
+                ProviderProfileId = operation.ProviderProfileId,
+                PaymentIntentId = operation.PaymentIntentId,
+                Amount = operation.Amount,
+                CreatedAt = operation.CreatedAt,
+                CustomerOutcome = operation.CustomerOutcome,
+                PaidAt = operation.PaidAt,
+                VerifiedAt = operation.VerifiedAt,
+                SettledAt = operation.SettledAt,
+                ReturnedAt = operation.ReturnedAt,
+                StartCalls = operation.StartCalls
+            };
+
+        private static MockProviderProfileSettings Copy(MockProviderProfileSettings profile)
+            => new()
+            {
+                Id = profile.Id,
+                TenderType = profile.TenderType,
+                Revision = profile.Revision,
+                Enabled = profile.Enabled,
+                Mode = profile.Mode,
+                CurrencyIds = profile.CurrencyIds.ToArray(),
+                MinimumAmount = profile.MinimumAmount,
+                MaximumAmount = profile.MaximumAmount,
+                SupportsInquiry = profile.SupportsInquiry,
+                RequiresSettlementAfterVerify = profile.RequiresSettlementAfterVerify,
+                SupportsProviderIdempotency = profile.SupportsProviderIdempotency,
+                UnverifiedPaymentExpiryBehavior = profile.UnverifiedPaymentExpiryBehavior,
+                VerifyWindowSeconds = profile.VerifyWindowSeconds
             };
     }
 }

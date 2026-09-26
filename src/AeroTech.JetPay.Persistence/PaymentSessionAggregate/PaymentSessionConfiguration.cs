@@ -16,25 +16,30 @@ namespace AeroTech.JetPay.Persistence.PaymentSessionAggregate
             builder.Property(session => session.OrderReference).HasMaxLength(64).IsRequired();
             builder.Property(session => session.FailureCode).HasMaxLength(64);
 
-            builder.OwnsOne(session => session.InitiatorContext, initiator =>
+            builder.OwnsOne(session => session.Initiator, initiator =>
             {
                 initiator.WithOwner().HasForeignKey("Id");
                 initiator.Property<string>("Id").HasMaxLength(64);
-                initiator.Property(context => context.SalesChannel).HasColumnName("InitiatorSalesChannel");
                 initiator.Property(context => context.ActorType).HasColumnName("InitiatorActorType").HasMaxLength(64).IsRequired();
                 initiator.Property(context => context.ActorId).HasColumnName("InitiatorActorId");
+                initiator.Property(context => context.SalesChannel).HasColumnName("InitiatorSalesChannel");
                 initiator.Property(context => context.OfficeId).HasColumnName("InitiatorOfficeId");
             });
 
-            builder.Navigation(session => session.InitiatorContext).IsRequired();
+            builder.Navigation(session => session.Initiator).IsRequired();
 
-            builder.PrimitiveCollection(session => session.PaymentIntentIds)
-                .HasField("_paymentIntentIds")
-                .UsePropertyAccessMode(PropertyAccessMode.Field)
-                .IsRequired();
+            builder.HasMany(session => session.Intents)
+                .WithOne()
+                .HasForeignKey(intent => intent.PaymentSessionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Navigation(session => session.Intents)
+                .HasField("_intents")
+                .UsePropertyAccessMode(PropertyAccessMode.Field);
 
             builder.Ignore(session => session.IsTerminal);
-            builder.Ignore(session => session.OutstandingGuaranteeAmount);
+            builder.Ignore(session => session.FundableAmount);
+            builder.Ignore(session => session.HasUnresolvedProviderEffect);
 
             builder.HasIndex(session => session.PayableInstructionId);
             builder.HasIndex(session => new { session.OrderId, session.CommercialVersion });

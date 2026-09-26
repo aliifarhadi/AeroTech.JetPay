@@ -4,7 +4,7 @@ using MediatR;
 
 namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.CancelPaymentSession
 {
-    public sealed record CancelPaymentSessionCommand(string IdempotencyKey, string PaymentSessionId) : IRequest<PaymentSessionResponse>
+    public sealed record CancelPaymentSessionCommand(string IdempotencyKey, string PaymentSessionId) : IRequest<PaymentSessionView>
     {
         public string Fingerprint() => RequestFingerprint.Of(PaymentSessionId);
     }

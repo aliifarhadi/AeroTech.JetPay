@@ -1,12 +1,12 @@
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.JetPay.Domain.Providers.Funding;
+using AeroTech.JetPay.Domain.Providers.Profiles;
 using AeroTech.JetPay.Domain.Providers.Tenders;
 using AeroTech.JetPay.Mock.Clock;
 using AeroTech.JetPay.Mock.Configuration;
 using AeroTech.JetPay.Mock.Faults;
 using AeroTech.JetPay.Mock.Funding;
 using AeroTech.JetPay.Mock.Tenders;
-using AeroTech.Messages.JetPay.Enums;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.Configuration;
@@ -44,17 +44,10 @@ namespace AeroTech.JetPay.Mock
             services.AddSingleton<MockFundingLedger>();
             services.AddSingleton<TransportFaultInjector>();
             services.AddScoped<IFundingCatalog, MockFundingCatalog>();
+            services.AddScoped<IProviderProfileCatalog, MockProviderProfileCatalog>();
 
             services.AddScoped<ITenderProvider, MockIranianPgwProvider>();
             services.AddScoped<ITenderProvider, MockStoredValueProvider>();
-            services.AddScoped<ITenderProvider, MockBnplProvider>();
-            services.AddScoped<ITenderProvider, MockCashProvider>();
-
-            foreach (var creditTender in new[] { TenderType.AgencyCredit, TenderType.CorporateCredit, TenderType.CustomerCredit })
-                services.AddScoped<ITenderProvider>(provider => new MockCreditProvider(
-                    creditTender,
-                    provider.GetRequiredService<MockFundingLedger>(),
-                    provider.GetRequiredService<IClock>()));
 
             return services;
         }

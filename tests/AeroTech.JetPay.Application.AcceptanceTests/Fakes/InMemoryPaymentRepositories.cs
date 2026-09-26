@@ -1,7 +1,6 @@
-using AeroTech.JetPay.Domain.PaymentIntentAggregate;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate.Contracts;
 using AeroTech.JetPay.Domain.PaymentSessionAggregate;
 using AeroTech.JetPay.Domain.PaymentSessionAggregate.Contracts;
+using AeroTech.Messages.JetPay.Enums;
 
 namespace AeroTech.JetPay.Application.AcceptanceTests.Fakes;
 
@@ -21,6 +20,9 @@ public sealed class InMemoryPaymentSessionRepository(InMemoryUnitOfWork unitOfWo
     public Task<PaymentSession?> GetAsync(string id, CancellationToken cancellationToken = default)
         => Task.FromResult(Tracked(_committed.FirstOrDefault(session => session.Id == id)));
 
+    public Task<string?> FindSessionIdByPaymentIntentAsync(string paymentIntentId, CancellationToken cancellationToken = default)
+        => Task.FromResult(_committed.FirstOrDefault(session => session.Intents.Any(intent => intent.Id == paymentIntentId))?.Id);
+
     public Task<PaymentSession?> FindActiveByPayableInstructionAsync(string payableInstructionId, CancellationToken cancellationToken = default)
         => Task.FromResult(Tracked(_committed
             .Where(session => session.PayableInstructionId == payableInstructionId && !session.IsTerminal)
@@ -30,8 +32,18 @@ public sealed class InMemoryPaymentSessionRepository(InMemoryUnitOfWork unitOfWo
     public Task<bool> HasNewerCommercialVersionAsync(long orderId, int commercialVersion, CancellationToken cancellationToken = default)
         => Task.FromResult(_committed.Any(session => session.OrderId == orderId && session.CommercialVersion > commercialVersion));
 
-    public Task<IReadOnlyList<string>> ListDueForExpiryAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<string>>(_committed.Where(session => session.IsDueForExpiryAt(now)).Select(session => session.Id).Take(batchSize).ToList());
+    public Task<IReadOnlyList<string>> ListDueForSweepAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<string>>(_committed
+            .Where(session => session.IsDueForExpiryAt(now)
+                              || session.Intents.Any(intent =>
+                                  intent.IsCustomerActionLapsedAt(now)
+                                  || (intent.Status is PaymentIntentStatus.Expired or PaymentIntentStatus.Cancelled
+                                      && intent.ProviderAttempts.Any(attempt => attempt.Status == ProviderPaymentAttemptStatus.CustomerActionPending))
+                                  || intent.ProviderAttempts.Any(attempt => attempt.IsDueForReversalAt(now))))
+            .OrderBy(session => session.UpdatedAt)
+            .Select(session => session.Id)
+            .Take(batchSize)
+            .ToList());
 
     private PaymentSession? Tracked(PaymentSession? session)
     {
@@ -39,45 +51,5 @@ public sealed class InMemoryPaymentSessionRepository(InMemoryUnitOfWork unitOfWo
             unitOfWork.Track(session);
 
         return session;
-    }
-}
-
-public sealed class InMemoryPaymentIntentRepository(InMemoryUnitOfWork unitOfWork) : IPaymentIntentRepository
-{
-    private readonly List<PaymentIntent> _committed = [];
-
-    public IReadOnlyList<PaymentIntent> Committed => _committed;
-
-    public Task AddAsync(PaymentIntent intent, CancellationToken cancellationToken = default)
-    {
-        unitOfWork.Track(intent);
-        unitOfWork.Stage(() => _committed.Add(intent));
-        return Task.CompletedTask;
-    }
-
-    public Task<PaymentIntent?> GetAsync(string id, CancellationToken cancellationToken = default)
-        => Task.FromResult(Tracked(_committed.FirstOrDefault(intent => intent.Id == id)));
-
-    public Task<IReadOnlyList<PaymentIntent>> ListBySessionAsync(string paymentSessionId, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<PaymentIntent>>(_committed
-            .Where(intent => intent.PaymentSessionId == paymentSessionId)
-            .OrderBy(intent => intent.Sequence)
-            .Select(intent => Tracked(intent)!)
-            .ToList());
-
-    public Task<IReadOnlyList<string>> ListSessionsWithLegsDueForExpiryAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<string>>(_committed
-            .Where(intent => intent.IsDueForExpiryAt(now))
-            .Select(intent => intent.PaymentSessionId)
-            .Distinct()
-            .Take(batchSize)
-            .ToList());
-
-    private PaymentIntent? Tracked(PaymentIntent? intent)
-    {
-        if (intent is not null)
-            unitOfWork.Track(intent);
-
-        return intent;
     }
 }

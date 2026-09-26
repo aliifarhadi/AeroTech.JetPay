@@ -9,27 +9,27 @@ namespace AeroTech.JetPay.Domain.PaymentSessionAggregate.ValueObjects
         {
         }
 
-        public PaymentInitiatorContext(SalesChannel salesChannel, string actorType, long actorId, long? officeId)
+        public PaymentInitiatorContext(string actorType, long actorId, SalesChannel salesChannel, long? officeId)
         {
-            SalesChannel = salesChannel;
             ActorType = actorType;
             ActorId = actorId;
+            SalesChannel = salesChannel;
             OfficeId = officeId;
         }
-
-        public SalesChannel SalesChannel { get; private set; }
 
         public string ActorType { get; private set; } = default!;
 
         public long ActorId { get; private set; }
 
+        public SalesChannel SalesChannel { get; private set; }
+
         public long? OfficeId { get; private set; }
 
         protected override IEnumerable<object?> GetEqualityComponents()
         {
-            yield return SalesChannel;
             yield return ActorType;
             yield return ActorId;
+            yield return SalesChannel;
             yield return OfficeId;
         }
     }

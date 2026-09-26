@@ -30,11 +30,11 @@ namespace AeroTech.JetPay.RestApi.V1.PaymentSessionAggregate
         public async Task<IActionResult> Get(string paymentSessionId, CancellationToken cancellationToken)
             => Ok(await _mediator.Send(new GetPaymentSessionByIdQuery(paymentSessionId), cancellationToken));
 
-        [HttpPost("{paymentSessionId}/Confirm")]
-        public async Task<IActionResult> Confirm(
+        [HttpPost("{paymentSessionId}/Selections")]
+        public async Task<IActionResult> AddSelections(
             string paymentSessionId,
             [FromHeader(Name = IdempotencyHeader.Name)] string? idempotencyKey,
-            [FromBody] ConfirmPaymentSessionRequest request,
+            [FromBody] AddPaymentSelectionsRequest request,
             CancellationToken cancellationToken)
             => Ok(await _mediator.Send(request.ToCommand(idempotencyKey ?? string.Empty, paymentSessionId), cancellationToken));
 

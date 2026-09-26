@@ -6,10 +6,12 @@ namespace AeroTech.JetPay.Domain.Providers.Tenders
     {
         TenderType TenderType { get; }
 
-        Task<TenderOutcome> StartAsync(TenderStartRequest request, CancellationToken cancellationToken = default);
+        Task<ProviderResult> StartAsync(ProviderStartRequest request, CancellationToken cancellationToken = default);
 
-        Task<TenderOutcome> VerifyAsync(TenderVerifyRequest request, CancellationToken cancellationToken = default);
+        Task<ProviderResult> VerifyAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default);
 
-        Task<TenderOutcome> ReleaseAsync(TenderReleaseRequest request, CancellationToken cancellationToken = default);
+        Task<ProviderResult> SettleAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default);
+
+        Task<ProviderResult> InquireAsync(ProviderOperationRequest request, CancellationToken cancellationToken = default);
     }
 }

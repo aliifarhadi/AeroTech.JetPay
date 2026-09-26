@@ -10,10 +10,10 @@ namespace AeroTech.JetPay.Mock.Configuration
 
         public int CustomerActionTtlSeconds { get; set; } = 900;
 
+        public int VerifyWindowSeconds { get; set; } = 600;
+
         public int[] PgwCurrencyIds { get; set; } = [70];
 
-        public int[] BnplCurrencyIds { get; set; } = [70];
-
-        public int BnplGuaranteeValiditySeconds { get; set; } = 86_400;
+        public int[] StoredValueCurrencyIds { get; set; } = [70];
     }
 }

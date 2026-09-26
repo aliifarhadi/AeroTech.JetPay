@@ -2,7 +2,6 @@ using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.Framework.Infrastructure.Persistence;
 using AeroTech.JetPay.Domain.IdempotencyRecordAggregate;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate;
 using AeroTech.JetPay.Domain.PaymentSessionAggregate;
 using AeroTech.JetPay.Persistence.Inbox;
 using AeroTech.JetPay.Persistence.Outbox;
@@ -25,8 +24,6 @@ namespace AeroTech.JetPay.Persistence
         }
 
         public DbSet<PaymentSession> PaymentSessions => Set<PaymentSession>();
-
-        public DbSet<PaymentIntent> PaymentIntents => Set<PaymentIntent>();
 
         public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 

@@ -1,8 +1,9 @@
 using AeroTech.Framework.Core.Domain.Repository;
 using AeroTech.Framework.Core.ServiceContracts;
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Services;
-using AeroTech.JetPay.Domain.PaymentIntentAggregate.Contracts;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate;
 using AeroTech.JetPay.Domain.PaymentSessionAggregate.Contracts;
+using AeroTech.JetPay.Domain.PaymentSessionAggregate.Entities;
 using MediatR;
 
 namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ExpireDuePayments
@@ -10,8 +11,7 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ExpireDue
     public sealed class ExpireDuePaymentsCommandHandler : IRequestHandler<ExpireDuePaymentsCommand, int>
     {
         private readonly IPaymentSessionRepository _sessions;
-        private readonly IPaymentIntentRepository _intents;
-        private readonly IPaymentSessionFunding _funding;
+        private readonly IPaymentIntentExecution _execution;
         private readonly IPaymentSessionLock _locks;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IIdGenerator _idGenerator;
@@ -19,16 +19,14 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ExpireDue
 
         public ExpireDuePaymentsCommandHandler(
             IPaymentSessionRepository sessions,
-            IPaymentIntentRepository intents,
-            IPaymentSessionFunding funding,
+            IPaymentIntentExecution execution,
             IPaymentSessionLock locks,
             IUnitOfWork unitOfWork,
             IIdGenerator idGenerator,
             IClock clock)
         {
             _sessions = sessions;
-            _intents = intents;
-            _funding = funding;
+            _execution = execution;
             _locks = locks;
             _unitOfWork = unitOfWork;
             _idGenerator = idGenerator;
@@ -37,13 +35,8 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ExpireDue
 
         public async Task<int> Handle(ExpireDuePaymentsCommand command, CancellationToken cancellationToken)
         {
-            var now = _clock.GetDateTime();
-            var due = (await _sessions.ListDueForExpiryAsync(now, command.BatchSize, cancellationToken))
-                .Concat(await _intents.ListSessionsWithLegsDueForExpiryAsync(now, command.BatchSize, cancellationToken))
-                .Distinct()
-                .ToList();
-
-            var changed = 0;
+            var due = await _sessions.ListDueForSweepAsync(_clock.GetDateTime(), command.BatchSize, cancellationToken);
+            var swept = 0;
 
             foreach (var sessionId in due)
             {
@@ -52,34 +45,39 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ExpireDue
                 if (sessionLock is null || await _sessions.GetAsync(sessionId, cancellationToken) is not { } session)
                     continue;
 
-                var intents = await _funding.LoadIntentsAsync(session, cancellationToken);
-
-                if (session.IsDueForExpiryAt(now))
-                {
-                    await _funding.ResolveUndispatchedAsync(session, intents, cancellationToken);
-                    await _funding.CloseUnfundedLegsAsync(intents, intent => intent.Expire(now), cancellationToken);
-                    session.Expire(intents, _idGenerator, now);
-                }
-                else if (!session.IsTerminal && intents.Any(intent => intent.IsDueForExpiryAt(now)))
-                {
-                    foreach (var intent in intents.Where(intent => intent.IsDueForExpiryAt(now)))
-                    {
-                        await _funding.ReleaseAsync(intent, cancellationToken);
-                        intent.ExpireIfDue(now);
-                    }
-
-                    session.Refresh(intents, _idGenerator, now);
-                }
-                else
-                {
-                    continue;
-                }
-
+                await SweepAsync(session, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                changed++;
+                swept++;
             }
 
-            return changed;
+            return swept;
         }
+
+        private async Task SweepAsync(PaymentSession session, CancellationToken cancellationToken)
+        {
+            var now = _clock.GetDateTime();
+
+            if (session.IsDueForExpiryAt(now))
+                session.Expire(_idGenerator, now);
+
+            foreach (var intent in session.Intents.Where(intent => intent.IsCustomerActionLapsedAt(now)).ToList())
+            {
+                var lapsedAt = intent.NextAction?.ExpiresAt ?? now;
+                session.ExpireCustomerAction(intent, _idGenerator, now);
+                await _execution.ResolveAbandonedAttemptAsync(session, intent, lapsedAt, cancellationToken);
+            }
+
+            foreach (var intent in session.Intents.Where(IsAbandoned).ToList())
+                await _execution.ResolveAbandonedAttemptAsync(session, intent, intent.UpdatedAt, cancellationToken);
+
+            foreach (var intent in session.Intents.ToList())
+            {
+                foreach (var attempt in intent.ProviderAttempts.Where(attempt => attempt.IsDueForReversalAt(now)).ToList())
+                    session.RecordReversed(intent, attempt, _idGenerator, now);
+            }
+        }
+
+        private static bool IsAbandoned(PaymentIntent intent)
+            => !intent.IsOpen && intent.CurrentAttempt?.Status == ProviderPaymentAttemptStatus.CustomerActionPending;
     }
 }

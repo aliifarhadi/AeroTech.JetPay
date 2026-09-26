@@ -1,22 +1,18 @@
 using AeroTech.JetPay.Application.PaymentSessionAggregate.Views;
 using AeroTech.JetPay.Application._Shared.Idempotency;
-using AeroTech.Messages.JetPay.Enums;
 using MediatR;
 
-namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.ConfirmPaymentSession
+namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Commands.AddPaymentSelections
 {
-    public sealed record PaymentSelection(string PaymentMethodOptionId, decimal Amount);
-
-    public sealed record ConfirmPaymentSessionCommand(
+    public sealed record AddPaymentSelectionsCommand(
         string IdempotencyKey,
         string PaymentSessionId,
-        PaymentSelectionMode SelectionMode,
         IReadOnlyList<PaymentSelection> Selections,
-        string? ReturnUrl) : IRequest<PaymentSessionResponse>
+        string? ReturnUrl) : IRequest<PaymentSessionView>
     {
         public string Fingerprint()
             => RequestFingerprint.Of(
-                [PaymentSessionId, SelectionMode, ReturnUrl, Selections.Count,
+                [PaymentSessionId, ReturnUrl, Selections.Count,
                  .. Selections.SelectMany(selection => new object?[] { selection.PaymentMethodOptionId, selection.Amount })]);
     }
 }

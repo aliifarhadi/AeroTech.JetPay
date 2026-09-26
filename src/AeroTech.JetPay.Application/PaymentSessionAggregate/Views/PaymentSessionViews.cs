@@ -3,8 +3,6 @@ using AeroTech.Messages.Shared.Enums;
 
 namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Views
 {
-    public sealed record PaymentSessionResponse(PaymentSessionView Session, IReadOnlyList<PaymentIntentView> PaymentIntents);
-
     public sealed record PaymentSessionView(
         string Id,
         string PayableInstructionId,
@@ -12,41 +10,39 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Views
         string OrderReference,
         int CommercialVersion,
         PaymentPurpose Purpose,
+        long IssuerLegalEntityId,
         PayerType PayerType,
         long PayerId,
-        PaymentInitiatorContextView InitiatorContext,
+        PaymentInitiatorContextView Initiator,
+        PaymentInteractionMode InteractionMode,
+        PaymentSelectionMode SelectionMode,
         decimal RequiredAmount,
         int CurrencyId,
         PaymentAssuranceRequirement AssuranceRequirement,
-        PaymentInteractionMode InteractionMode,
         PaymentSessionStatus Status,
         decimal GuaranteedAmount,
         decimal CapturedAmount,
-        decimal RefundedAmount,
         decimal OutstandingAmount,
-        DateTimeOffset? EarliestGuaranteeExpiry,
         DateTimeOffset? ExpiresAt,
         string? FailureCode,
         long Version,
         DateTimeOffset CreatedAt,
         DateTimeOffset UpdatedAt,
-        IReadOnlyList<string> PaymentIntentIds);
+        IReadOnlyList<PaymentIntentView> Intents);
 
     public sealed record PaymentInitiatorContextView(
-        SalesChannel SalesChannel,
         string ActorType,
         long ActorId,
+        SalesChannel SalesChannel,
         long? OfficeId);
 
     public sealed record PaymentIntentView(
         string Id,
         string PaymentSessionId,
-        int Sequence,
         string PaymentMethodOptionId,
         TenderType TenderType,
         decimal RequestedAmount,
         int CurrencyId,
-        PaymentCaptureMode CaptureMode,
         PaymentIntentStatus Status,
         decimal AuthorizedAmount,
         decimal GuaranteedAmount,
@@ -66,4 +62,6 @@ namespace AeroTech.JetPay.Application.PaymentSessionAggregate.Views
         string? HttpMethod,
         IReadOnlyDictionary<string, string>? FormFields,
         DateTimeOffset? ExpiresAt);
+
+    public sealed record PaymentSelection(string PaymentMethodOptionId, decimal Amount);
 }
